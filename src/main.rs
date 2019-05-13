@@ -1,17 +1,20 @@
 extern crate clap;
 #[macro_use]
 extern crate experiment;
+extern crate boolinator;
 extern crate git2;
 extern crate glob;
 extern crate json;
 extern crate stdbench;
 extern crate stderrlog;
 
+use boolinator::Boolinator;
 use clap::{App, Arg};
 use experiment::process::{Process, ProcessPipeline};
 use experiment::Verbosity;
 use glob::glob;
 use log::{error, info, warn};
+use std::env;
 use std::fmt::Display;
 use std::path::PathBuf;
 use std::process;
@@ -19,6 +22,7 @@ use stdbench::config::{CollectionConfig, Config};
 use stdbench::executor::PisaExecutor;
 use stdbench::{Error, Stage};
 
+#[cfg_attr(tarpaulin, skip)]
 pub fn app<'a, 'b>() -> App<'a, 'b> {
     App::new("PISA standard benchmark for regression tests.")
         .version("1.0")
@@ -37,12 +41,12 @@ pub fn app<'a, 'b>() -> App<'a, 'b> {
         )
 }
 
-fn parse_config() -> Result<stdbench::config::Config, Error> {
+fn parse_config(args: Vec<String>) -> Result<stdbench::config::Config, Error> {
     info!("Parsing config");
-    let matches = app().get_matches();
+    let matches = app().get_matches_from(args);
     let config_file = matches
         .value_of("config-file")
-        .ok_or_else(|| Error::new("cannot read --config"))?;
+        .expect("failed to read required argument");
     let mut config = Config::from_file(PathBuf::from(config_file))?;
     if let Some(stages) = matches.values_of("suppress") {
         for name in stages {
@@ -52,8 +56,6 @@ fn parse_config() -> Result<stdbench::config::Config, Error> {
                 warn!("Requested suppression of stage `{}` that is invalid", name);
             }
         }
-    } else {
-        panic!("");
     }
     Ok(config)
 }
@@ -63,36 +65,28 @@ fn parse_wapo_command(
     collection: &CollectionConfig,
 ) -> Result<ProcessPipeline, Error> {
     let input_path = collection.collection_dir.join("data/*.jl");
-    let input = input_path
-        .to_str()
-        .ok_or_else(|| Error::new("unable to parse path"))?;
-    let input_files: Vec<_> = glob(input)
-        .or_else(|e| Err(Error(format!("{}", e))))?
-        .filter_map(Result::ok)
-        .collect();
-    if input_files.is_empty() {
-        Err(Error(format!(
-            "could not resolve any files for pattern: {}",
-            input
-        )))
-    } else {
-        Ok(pipeline!(
-            Process::new("cat", &input_files),
-            executor.command(
-                "parse_collection",
-                &[
-                    "-o",
-                    collection.forward_index.to_str().unwrap(),
-                    "-f",
-                    "wapo",
-                    "--stemmer",
-                    "porter2",
-                    "--content-parser",
-                    "html"
-                ]
-            )
-        ))
-    }
+    let input = input_path.to_str().unwrap();
+    let input_files: Vec<_> = glob(input).unwrap().filter_map(Result::ok).collect();
+    (!input_files.is_empty()).ok_or(Error(format!(
+        "could not resolve any files for pattern: {}",
+        input
+    )))?;
+    Ok(pipeline!(
+        Process::new("cat", &input_files),
+        executor.command(
+            "parse_collection",
+            &[
+                "-o",
+                collection.forward_index.to_str().unwrap(),
+                "-f",
+                "wapo",
+                "--stemmer",
+                "porter2",
+                "--content-parser",
+                "html"
+            ]
+        )
+    ))
 }
 
 fn parse_command(
@@ -101,7 +95,7 @@ fn parse_command(
 ) -> Result<ProcessPipeline, Error> {
     match collection.name.as_ref() {
         "wapo" => parse_wapo_command(executor, collection),
-        _ => panic!(""),
+        _ => unimplemented!(""),
     }
 }
 
@@ -137,7 +131,7 @@ fn main() {
         .module(module_path!())
         .init()
         .unwrap();
-    let config = parse_config().unwrap_or_else(exit_gracefully);
+    let config = parse_config(env::args().collect()).unwrap_or_else(exit_gracefully);
 
     info!("Code source: {:?}", &config.source);
     let executor = config.source.executor(&config).unwrap_or_else(|e| {
@@ -179,33 +173,85 @@ mod test {
     use tempdir::TempDir;
 
     #[test]
+    fn test_parse_config_missing_file() {
+        assert!(parse_config(
+            ["exe", "--config-file", "file"]
+                .into_iter()
+                .map(|&s| String::from(s))
+                .collect(),
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn test_parse_config() {
+        let tmp = TempDir::new("tmp").unwrap();
+        let config_file = tmp.path().join("conf.yml");
+        let yml = "
+workdir: /tmp
+source:
+    type: git
+    branch: dev
+    url: https://github.com/pisa-engine/pisa.git
+collections:
+    - description: WashingtonPost.v2
+      forward_index: fwd/wapo
+      inverted_index: inv/wapo";
+        fs::write(config_file.to_str().unwrap(), &yml).unwrap();
+        let conf = parse_config(
+            [
+                "exe",
+                "--config-file",
+                "conf.yml",
+                "--suppress",
+                "compile",
+                "invalid",
+            ]
+            .into_iter()
+            .map(|&s| String::from(s))
+            .collect(),
+        )
+        .unwrap();
+        assert!(conf.is_suppressed(Stage::Compile));
+    }
+
+    #[test]
     fn test_parse_wapo_command() {
         let tmp = TempDir::new("tmp").unwrap();
         let data_dir = tmp.path().join("data");
         fs::create_dir(&data_dir).unwrap();
         let data_file = data_dir.join("TREC_Washington_Post_collection.v2.jl");
         fs::File::create(&data_file).unwrap();
+        let executor = stdbench::executor::SystemPathExecutor::new();
+        let cconf = CollectionConfig {
+            name: String::from("wapo"),
+            description: None,
+            collection_dir: tmp.path().to_path_buf(),
+            forward_index: PathBuf::from("fwd"),
+            inverted_index: PathBuf::from("inv"),
+        };
+        let expected = format!(
+            "cat {}\n\t| parse_collection -o fwd \
+             -f wapo --stemmer porter2 --content-parser html",
+            data_file.to_str().unwrap()
+        );
         assert_eq!(
             format!(
                 "{}",
-                parse_wapo_command(
-                    &stdbench::executor::SystemPathExecutor::new(),
-                    &CollectionConfig {
-                        name: String::from("name"),
-                        description: None,
-                        collection_dir: tmp.path().to_path_buf(),
-                        forward_index: PathBuf::from("fwd"),
-                        inverted_index: PathBuf::from("inv"),
-                    }
-                )
-                .unwrap()
-                .display(Verbosity::Verbose)
+                parse_wapo_command(&executor, &cconf)
+                    .unwrap()
+                    .display(Verbosity::Verbose)
             ),
+            expected
+        );
+        assert_eq!(
             format!(
-                "cat {}\n\t| parse_collection -o fwd \
-                 -f wapo --stemmer porter2 --content-parser html",
-                data_file.to_str().unwrap()
-            )
+                "{}",
+                parse_command(&executor, &cconf)
+                    .unwrap()
+                    .display(Verbosity::Verbose)
+            ),
+            expected
         );
     }
 }

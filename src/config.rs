@@ -164,7 +164,6 @@ impl Config {
 }
 
 #[cfg(test)]
-#[cfg_attr(tarpaulin, skip)]
 mod tests {
     extern crate tempdir;
 

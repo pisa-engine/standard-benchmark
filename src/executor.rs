@@ -154,9 +154,6 @@ fn init_git(config: &Config, url: &str, branch: &str) -> Result<Box<PisaExecutor
     if !dir.exists() {
         let clone = Process::new("git", &["clone", &url, dir.to_str().unwrap()]);
         execute!(printed(clone).command(); "cloning failed");
-        dir.join("CMakeLists.txt")
-            .exists()
-            .ok_or(Error::new("cloning failed"))?;
     };
     let build_dir = dir.join("build");
     create_dir_all(&build_dir).map_err(|e| Error(format!("{}", e)))?;
@@ -176,7 +173,6 @@ fn init_git(config: &Config, url: &str, branch: &str) -> Result<Box<PisaExecutor
 }
 
 #[cfg(test)]
-#[cfg_attr(tarpaulin, skip)]
 mod tests {
     extern crate downcast_rs;
     extern crate tempdir;
@@ -323,6 +319,16 @@ mod tests {
     }
 
     #[test]
+    fn test_git_executor_wrong_bin() {
+        assert_eq!(
+            GitPisaExecutor::new(PathBuf::from("/nonexistent/path")),
+            Err(Error::new(
+                "Failed to construct git executor: not a directory: /nonexistent/path"
+            ))
+        );
+    }
+
+    #[test]
     fn test_init_git_failed_clone() {
         let tmp = TempDir::new("tmp").unwrap();
         let workdir = tmp.path().join("work");
@@ -387,6 +393,28 @@ mod tests {
             )
             .ok()
             .as_ref()
+        );
+    }
+
+    #[test]
+    fn test_init_git_suppress_compilation() {
+        let (_tmp, workdir, origin_dir) = set_up_git();
+        let mut conf = Config::new(
+            &workdir,
+            Box::new(GitSource::new(&origin_dir.to_str().unwrap(), "master")),
+        );
+        conf.suppress_stage(Stage::Compile);
+        assert_eq!(
+            conf.source.executor(&conf).err(),
+            Some(Error(format!(
+                "Failed to construct git executor: not a directory: {}",
+                workdir
+                    .join("pisa")
+                    .join("build")
+                    .join("bin")
+                    .to_str()
+                    .unwrap()
+            )))
         );
     }
 }

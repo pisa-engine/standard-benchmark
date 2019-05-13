@@ -91,20 +91,40 @@ pub fn printed(cmd: Process) -> Process {
     cmd
 }
 
-#[cfg(test)]
-#[cfg_attr(tarpaulin, skip)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_error() {
-        let error = Error::new("error message");
-        assert_eq!(error, Error(String::from("error message")));
-        assert_eq!(format!("{}", error), String::from("error message"));
-    }
-
-}
-
+/// Executes a `$cmd`, checks for results, and returns an error with `$errmsg` message.
+/// It is designed to be similar to `?` operator, removing bulky boilerplate from
+/// functions that execute many consecutive commands.
+///
+/// This macro will return error in one of the two cases:
+/// - command execution failed,
+/// - command returned an exit status equivalent to an error.
+///
+/// This macro is intended to be used in simple cases when we do not want to capture
+/// the output or learn more about exit status, since the only feedback we get
+/// is the error message passed at the call site.
+///
+/// # Example
+///
+/// ```
+/// # #[macro_use]
+/// # extern crate stdbench;
+/// extern crate boolinator;
+/// # use stdbench::Error;
+/// # use std::process::Command;
+/// use boolinator::Boolinator;
+/// # fn main() {
+/// fn f() -> Result<(), Error> {
+///     execute!(Command::new("ls"); "couldn't ls");
+///     execute!(Command::new("cat").args(&["some_file"]); "couldn't cat");
+///     Ok(())
+/// }
+///
+/// match f() {
+///     Ok(()) => println!(),
+///     Err(err) => println!("Here's what went"),
+/// }
+/// # }
+/// ```
 #[macro_export]
 macro_rules! execute {
     ($cmd:expr; $errmsg:expr) => {{
@@ -113,4 +133,33 @@ macro_rules! execute {
             .success()
             .ok_or(Error::new($errmsg))?;
     }};
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use boolinator::Boolinator;
+
+    #[test]
+    fn test_error() {
+        let error = Error::new("error message");
+        assert_eq!(error, Error(String::from("error message")));
+        assert_eq!(format!("{}", error), String::from("error message"));
+    }
+
+    #[test]
+    fn test_execute_failed_to_start() {
+        struct MockCommand {};
+        impl MockCommand {
+            fn status(&self) -> Result<std::process::ExitStatus, &'static str> {
+                Err("Oops")
+            }
+        }
+        let f = || -> Result<(), Error> {
+            execute!(MockCommand{}; "err");
+            Ok(())
+        };
+        assert_eq!(f().err(), Some(Error::new("Oops")));
+    }
+
 }
