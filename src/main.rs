@@ -194,7 +194,9 @@ source:
     branch: dev
     url: https://github.com/pisa-engine/pisa.git
 collections:
-    - description: WashingtonPost.v2
+    - name: wapo
+      description: WashingtonPost.v2
+      collection_dir: coll
       forward_index: fwd/wapo
       inverted_index: inv/wapo";
         fs::write(config_file.to_str().unwrap(), &yml).unwrap();
@@ -202,7 +204,7 @@ collections:
             [
                 "exe",
                 "--config-file",
-                "conf.yml",
+                config_file.to_str().unwrap(),
                 "--suppress",
                 "compile",
                 "invalid",
