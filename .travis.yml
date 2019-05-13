@@ -24,7 +24,6 @@ before_cache: |
 
 script:
   - |
-      cargo clean &&
       cargo build &&
       cargo test &&
       cargo doc
