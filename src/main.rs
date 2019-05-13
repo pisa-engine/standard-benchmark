@@ -4,7 +4,6 @@ extern crate experiment;
 extern crate git2;
 extern crate glob;
 extern crate json;
-#[macro_use]
 extern crate stdbench;
 extern crate stderrlog;
 
@@ -12,12 +11,13 @@ use clap::{App, Arg};
 use experiment::process::{Process, ProcessPipeline};
 use experiment::Verbosity;
 use glob::glob;
-use log::{info, warn};
+use log::{error, info, warn};
+use std::fmt::Display;
 use std::path::PathBuf;
 use std::process;
 use stdbench::config::{CollectionConfig, Config};
 use stdbench::executor::PisaExecutor;
-use stdbench::{exit_gracefully, Error, Stage};
+use stdbench::{Error, Stage};
 
 pub fn app<'a, 'b>() -> App<'a, 'b> {
     App::new("PISA standard benchmark for regression tests.")
@@ -103,6 +103,31 @@ fn parse_command(
         "wapo" => parse_wapo_command(executor, collection),
         _ => panic!(""),
     }
+}
+
+/// Prints out the error with the logger and exits the program.
+/// ```
+/// # extern crate stdbench;
+/// # use::stdbench::*;
+/// let x: Result<i32, &str> = Ok(-3);
+/// let y = x.unwrap_or_else(exit_gracefully);
+/// ```
+#[cfg_attr(tarpaulin, skip)]
+pub fn exit_gracefully<E: Display, R>(e: E) -> R {
+    error!("{}", e);
+    // TODO: why is error not working?
+    println!("ERROR - {}", e);
+    process::exit(1);
+}
+
+#[macro_export]
+macro_rules! must_succeed {
+    ($cmd:expr) => {{
+        let status = $cmd;
+        if !status.success() {
+            std::process::exit(status.code().unwrap_or(1));
+        }
+    }};
 }
 
 #[cfg_attr(tarpaulin, skip)]

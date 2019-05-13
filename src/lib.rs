@@ -8,10 +8,9 @@ extern crate downcast_rs;
 
 use experiment::process::Process;
 use experiment::Verbosity;
-use log::{error, info};
-use std::fmt::Display;
+use log::info;
+use std::fmt;
 use std::fs::create_dir_all;
-use std::{fmt, process};
 
 pub mod config;
 pub mod executor;
@@ -92,21 +91,6 @@ pub fn printed(cmd: Process) -> Process {
     cmd
 }
 
-/// Prints out the error with the logger and exits the program.
-/// ```
-/// # extern crate stdbench;
-/// # use::stdbench::*;
-/// let x: Result<i32, &str> = Ok(-3);
-/// let y = x.unwrap_or_else(exit_gracefully);
-/// ```
-#[cfg_attr(tarpaulin, skip)]
-pub fn exit_gracefully<E: Display, R>(e: E) -> R {
-    error!("{}", e);
-    // TODO: why is error not working?
-    println!("ERROR - {}", e);
-    process::exit(1);
-}
-
 #[cfg(test)]
 #[cfg_attr(tarpaulin, skip)]
 mod tests {
@@ -122,11 +106,11 @@ mod tests {
 }
 
 #[macro_export]
-macro_rules! must_succeed {
+macro_rules! checked_execute {
     ($cmd:expr) => {{
-        let status = $cmd;
-        if !status.success() {
-            process::exit(status.code().unwrap_or(1));
-        }
+        $cmd.execute()
+            .map_err(|e| Error(format!("{}", e)))?
+            .success()
+            .ok_or(Error::new(""))?;
     }};
 }

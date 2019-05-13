@@ -148,7 +148,7 @@ fn init_git(config: &Config, url: &str, branch: &str) -> Result<Box<PisaExecutor
     let dir = config.workdir.join("pisa");
     if !dir.exists() {
         let clone = Process::new("git", &["clone", &url, dir.to_str().unwrap()]);
-        must_succeed!(printed(clone).execute().unwrap_or_else(exit_gracefully));
+        checked_execute!(printed(clone));
         dir.join("CMakeLists.txt")
             .exists()
             .ok_or(Error::new("cloning failed"))?;
@@ -159,8 +159,8 @@ fn init_git(config: &Config, url: &str, branch: &str) -> Result<Box<PisaExecutor
         warn!("Compilation has been suppressed");
     } else {
         let checkout = Process::new("git", &["-C", &dir.to_str().unwrap(), "checkout", branch]);
-        must_succeed!(printed(checkout).execute().unwrap_or_else(exit_gracefully));
-        create_dir_all(&build_dir).unwrap_or_else(exit_gracefully);
+        checked_execute!(printed(checkout));
+        create_dir_all(&build_dir).map_err(|e| Error(format!("{}", e)))?;
         let cmake = Process::new(
             "cmake",
             &[
@@ -171,9 +171,9 @@ fn init_git(config: &Config, url: &str, branch: &str) -> Result<Box<PisaExecutor
                 &build_dir.to_str().unwrap(),
             ],
         );
-        must_succeed!(printed(cmake).execute().unwrap_or_else(exit_gracefully));
+        checked_execute!(printed(cmake));
         let build = Process::new("cmake", &["--build", &build_dir.to_str().unwrap()]);
-        must_succeed!(printed(build).execute().unwrap_or_else(exit_gracefully));
+        checked_execute!(printed(build));
     }
     let executor = GitPisaExecutor::new(build_dir.join("bin"))?;
     Ok(Box::new(executor))
@@ -342,11 +342,12 @@ mod tests {
     fn run_from(dir: PathBuf) -> impl Fn(&'static str) -> () {
         move |args: &'static str| {
             let mut args = args.split(" ").into_iter();
-            must_succeed!(Command::new(args.next().unwrap())
+            Command::new(args.next().unwrap())
                 .current_dir(&dir)
                 .args(args.collect::<Vec<&str>>())
                 .status()
-                .expect("failed git command"))
+                .expect("failed git command");
+            ()
         }
     }
 
