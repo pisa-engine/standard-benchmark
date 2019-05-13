@@ -355,7 +355,7 @@ mod tests {
         create_dir_all(&origin_dir).unwrap();
         let run = run_from(origin_dir.clone());
         run("git init");
-        let cmakelists = "cmake_minimum_required(VERSION 3.14)
+        let cmakelists = "cmake_minimum_required(VERSION 3.0)
              add_custom_target(build-time-make-directory ALL
              COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/bin)";
         std::fs::write(origin_dir.join("CMakeLists.txt"), &cmakelists)
