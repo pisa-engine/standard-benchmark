@@ -4,6 +4,7 @@ extern crate experiment;
 extern crate git2;
 extern crate glob;
 extern crate json;
+#[macro_use]
 extern crate stdbench;
 extern crate stderrlog;
 
@@ -104,16 +105,7 @@ fn parse_command(
     }
 }
 
-#[macro_export]
-macro_rules! must_succeed {
-    ($cmd:expr) => {{
-        let status = $cmd;
-        if !status.success() {
-            process::exit(status.code().unwrap_or(1));
-        }
-    }};
-}
-
+#[cfg_attr(tarpaulin, skip)]
 fn main() {
     stderrlog::new()
         .verbosity(100)
@@ -123,7 +115,7 @@ fn main() {
     let config = parse_config().unwrap_or_else(exit_gracefully);
 
     info!("Code source: {:?}", &config.source);
-    let executor = PisaExecutor::from(&config).unwrap_or_else(|e| {
+    let executor = config.source.executor(&config).unwrap_or_else(|e| {
         println!("Failed to construct executor: {}", e);
         process::exit(1);
     });

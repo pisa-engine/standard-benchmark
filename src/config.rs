@@ -1,69 +1,12 @@
 extern crate yaml_rust;
 
+use super::executor::*;
 use super::{Error, Stage};
-//use log::error;
 use std::collections::HashSet;
 use std::convert::From;
 use std::fs::read_to_string;
 use std::path::{Path, PathBuf};
 use yaml_rust::{Yaml, YamlLoader};
-
-/// Defines where the code comes from.
-#[derive(Debug, PartialEq)]
-pub enum CodeSource {
-    Git { url: String, branch: String },
-    Docker { tag: String },
-}
-
-impl CodeSource {
-    fn parse_git_source(yaml: &Yaml) -> Result<CodeSource, Error> {
-        match (yaml["url"].as_str(), yaml["branch"].as_str()) {
-            (None, _) => Err(Error::new("missing source.url")),
-            (_, None) => Err(Error::new("missing source.branch")),
-            (Some(url), Some(branch)) => Ok(CodeSource::Git {
-                url: String::from(url),
-                branch: String::from(branch),
-            }),
-        }
-    }
-    fn parse_docker_source(yaml: &Yaml) -> Result<CodeSource, Error> {
-        match yaml["tag"].as_str() {
-            None => Err(Error::new("missing source.tag")),
-            Some(tag) => Ok(CodeSource::Docker {
-                tag: String::from(tag),
-            }),
-        }
-    }
-    /// Constructs `CodeSource` object from a YAML object.
-    ///
-    /// ```
-    /// extern crate yaml_rust;
-    /// # extern crate stdbench;
-    /// # use stdbench::config::*;
-    /// let yaml = yaml_rust::YamlLoader::load_from_str("
-    /// type: git
-    /// url: http://git.url
-    /// branch: master").unwrap();
-    /// let source = CodeSource::parse(&yaml[0]);
-    /// assert_eq!(
-    ///     source,
-    ///     Ok(CodeSource::Git {
-    ///         url: String::from("http://git.url"),
-    ///         branch: String::from("master")
-    ///     }
-    /// ));
-    /// ```
-    pub fn parse(yaml: &Yaml) -> Result<CodeSource, Error> {
-        match yaml["type"].as_str() {
-            Some(typ) => match typ {
-                "git" => Ok(CodeSource::parse_git_source(&yaml)?),
-                "docker" => Ok(CodeSource::parse_docker_source(&yaml)?),
-                typ => Err(Error(format!("unknown source type: {}", typ))),
-            },
-            None => Err(Error::new("missing or corrupted source.type")),
-        }
-    }
-}
 
 /// Configuration of a tested collection.
 #[derive(Debug, PartialEq)]
@@ -123,14 +66,15 @@ impl CollectionConfig {
 }
 
 /// Stores a full config for benchmark run.
+#[derive(Debug)]
 pub struct Config {
     pub workdir: PathBuf,
-    pub source: CodeSource,
+    pub source: Box<PisaSource>,
     suppressed: HashSet<Stage>,
     pub collections: Vec<CollectionConfig>,
 }
 impl Config {
-    fn new<P>(workdir: P, source: CodeSource) -> Config
+    pub fn new<P>(workdir: P, source: Box<PisaSource>) -> Config
     where
         P: AsRef<Path>,
     {
@@ -165,7 +109,7 @@ impl Config {
             Ok(yaml) => match (yaml[0]["workdir"].as_str(), &yaml[0]["source"]) {
                 (None, _) => Err(Error::new("missing or corrupted workdir")),
                 (Some(workdir), source) => {
-                    let source = CodeSource::parse(source)?;
+                    let source = PisaSource::parse(source)?;
                     let mut conf = Config::new(PathBuf::from(workdir), source);
                     match &yaml[0]["collections"] {
                         Yaml::Array(collections) => {
@@ -175,10 +119,12 @@ impl Config {
                                         conf.collections.push(coll_config);
                                     }
                                     // TODO: Err(err) => error!("Unable to parse collection config: {}", err),
-                                    Err(err) => println!(
-                                        "ERROR - Unable to parse collection config: {}",
-                                        err
-                                    ),
+                                    Err(err) => {
+                                        println!(
+                                            "ERROR - Unable to parse collection config: {}",
+                                            err
+                                        );
+                                    }
                                 }
                             }
                             if conf.collections.is_empty() {
@@ -218,148 +164,26 @@ impl Config {
 }
 
 #[cfg(test)]
+#[cfg_attr(tarpaulin, skip)]
 mod tests {
+    extern crate tempdir;
+
     use super::*;
+    use tempdir::TempDir;
 
-    #[test]
-    fn test_parse_git_source() {
-        assert_eq!(
-            CodeSource::parse_git_source(
-                &YamlLoader::load_from_str(
-                    r#"
-                        type: git
-                        branch: dev
-                        url: https://github.com/pisa-engine/pisa.git
-                    "#
-                )
-                .unwrap()[0]
-            ),
-            Ok(CodeSource::Git {
-                url: String::from("https://github.com/pisa-engine/pisa.git"),
-                branch: String::from("dev")
-            })
-        );
-        assert_eq!(
-            CodeSource::parse_git_source(
-                &YamlLoader::load_from_str(
-                    r#"
-                        type: git
-                        url: https://github.com/pisa-engine/pisa.git
-                    "#
-                )
-                .unwrap()[0]
-            ),
-            Err(Error::new("missing source.branch"))
-        );
-        assert_eq!(
-            CodeSource::parse_git_source(
-                &YamlLoader::load_from_str(
-                    r#"
-                        type: git
-                    "#
-                )
-                .unwrap()[0]
-            ),
-            Err(Error::new("missing source.url"))
-        );
+    fn test_conf() -> Config {
+        Config::new(PathBuf::from("/work"), Box::new(GitSource::new("", "")))
     }
 
     #[test]
-    fn test_parse_docker_source() {
-        assert_eq!(
-            CodeSource::parse_docker_source(
-                &YamlLoader::load_from_str(
-                    r#"
-                        type: docker
-                        tag: latest
-                    "#
-                )
-                .unwrap()[0]
-            ),
-            Ok(CodeSource::Docker {
-                tag: String::from("latest")
-            })
-        );
-        assert_eq!(
-            CodeSource::parse_docker_source(
-                &YamlLoader::load_from_str(
-                    r#"
-                        type: docker
-                    "#
-                )
-                .unwrap()[0]
-            ),
-            Err(Error::new("missing source.tag"))
-        );
-    }
-
-    #[test]
-    fn test_parse() {
-        assert_eq!(
-            CodeSource::parse(
-                &YamlLoader::load_from_str(
-                    r#"
-                        type: docker
-                        tag: latest
-                    "#
-                )
-                .unwrap()[0]
-            ),
-            Ok(CodeSource::Docker {
-                tag: String::from("latest")
-            })
-        );
-        assert_eq!(
-            CodeSource::parse(
-                &YamlLoader::load_from_str(
-                    r#"
-                        type: git
-                        branch: dev
-                        url: https://github.com/pisa-engine/pisa.git
-                    "#
-                )
-                .unwrap()[0]
-            ),
-            Ok(CodeSource::Git {
-                url: String::from("https://github.com/pisa-engine/pisa.git"),
-                branch: String::from("dev")
-            })
-        );
-        assert_eq!(
-            CodeSource::parse(
-                &YamlLoader::load_from_str(
-                    r#"
-                        type: 112
-                    "#
-                )
-                .unwrap()[0]
-            ),
-            Err(Error::new("missing or corrupted source.type"))
-        );
-        assert_eq!(
-            CodeSource::parse(
-                &YamlLoader::load_from_str(
-                    r#"
-                        type: "foo"
-                    "#
-                )
-                .unwrap()[0]
-            ),
-            Err(Error::new("unknown source type: foo"))
-        );
+    fn test_suppress() {
+        let mut conf = test_conf();
+        conf.suppress_stage(Stage::BuildIndex);
+        assert!(conf.is_suppressed(Stage::BuildIndex));
     }
 
     #[test]
     fn test_parse_collection() {
-        let config = Config {
-            workdir: PathBuf::from("/work"),
-            source: CodeSource::Git {
-                url: String::from(""),
-                branch: String::from(""),
-            },
-            suppressed: HashSet::new(),
-            collections: Vec::new(),
-        };
         let yaml = yaml_rust::YamlLoader::load_from_str(
             "
         name: wapo
@@ -369,11 +193,119 @@ mod tests {
         inverted_index: /absolute/path/to/inv/wapo",
         )
         .unwrap();
-        let coll = config.parse_collection(&yaml[0]).unwrap();
+        let coll = test_conf().parse_collection(&yaml[0]).unwrap();
         assert_eq!(coll.forward_index, PathBuf::from("/work/fwd/wapo"));
         assert_eq!(
             coll.inverted_index,
             PathBuf::from("/absolute/path/to/inv/wapo")
         );
+    }
+
+    #[test]
+    fn test_parse_collection_missing_coll_dir() {
+        let yaml = yaml_rust::YamlLoader::load_from_str(
+            "
+        name: wapo
+        description: WashingtonPost.v2
+        forward_index: fwd/wapo
+        inverted_index: /absolute/path/to/inv/wapo",
+        )
+        .unwrap();
+        assert_eq!(
+            test_conf().parse_collection(&yaml[0]),
+            Err(Error::new("undefined collection_dir"))
+        );
+    }
+
+    #[test]
+    fn test_config_from_file() -> std::io::Result<()> {
+        let tmp = TempDir::new("tmp")?;
+        let config_file = tmp.path().join("conf.yml");
+        let yml = "
+workdir: /tmp
+source:
+    type: git
+    branch: dev
+    url: https://github.com/pisa-engine/pisa.git
+collections:
+    - name: wapo
+      description: WashingtonPost.v2
+      collection_dir: /collections/wapo
+      forward_index: fwd/wapo
+      inverted_index: inv/wapo";
+        std::fs::write(&config_file, yml)?;
+        let conf = Config::from_file(config_file).unwrap();
+        assert_eq!(conf.workdir, PathBuf::from("/tmp"));
+        assert_eq!(
+            format!("{:?}", conf.source),
+            format!(
+                "{:?}",
+                GitSource::new("https://github.com/pisa-engine/pisa.git", "dev")
+            )
+        );
+        assert_eq!(
+            conf.collections[0],
+            CollectionConfig {
+                name: "wapo".to_string(),
+                description: Some(String::from("WashingtonPost.v2")),
+                collection_dir: PathBuf::from("/collections/wapo"),
+                forward_index: PathBuf::from("/tmp/fwd/wapo"),
+                inverted_index: PathBuf::from("/tmp/inv/wapo"),
+            }
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_config_from_file_missing_collections() -> std::io::Result<()> {
+        let tmp = TempDir::new("tmp")?;
+        let config_file = tmp.path().join("conf.yml");
+        let yml = "
+workdir: /tmp
+source:
+    type: git
+    branch: dev
+    url: https://github.com/pisa-engine/pisa.git";
+        std::fs::write(&config_file, yml)?;
+        let conf = Config::from_file(config_file).err();
+        assert_eq!(
+            conf,
+            Some(Error::new("missing or corrupted collections config"))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_config_from_file_corrupted_collection() -> std::io::Result<()> {
+        let tmp = TempDir::new("tmp")?;
+        let config_file = tmp.path().join("conf.yml");
+        let yml = "
+workdir: /tmp
+source:
+    type: git
+    branch: dev
+    url: https://github.com/pisa-engine/pisa.git
+collections:
+    - description: WashingtonPost.v2
+      forward_index: fwd/wapo
+      inverted_index: inv/wapo";
+        std::fs::write(&config_file, yml)?;
+        let conf = Config::from_file(config_file).err();
+        assert_eq!(
+            conf,
+            Some(Error::new("no correct collection configurations found"))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_config_from_file_yaml_error() -> std::io::Result<()> {
+        let tmp = TempDir::new("tmp")?;
+        let config_file = tmp.path().join("conf.yml");
+        let yml = "*%%#";
+        std::fs::write(&config_file, yml)?;
+        let conf = Config::from_file(config_file).err();
+        assert_eq!(conf, Some(Error::new("could not parse YAML file")));
+        Ok(())
     }
 }
