@@ -106,9 +106,9 @@ mod tests {
 }
 
 #[macro_export]
-macro_rules! success {
-    ($cmd:expr; else $errmsg:expr) => {{
-        $cmd.execute()
+macro_rules! execute {
+    ($cmd:expr; $errmsg:expr) => {{
+        $cmd.status()
             .map_err(|e| Error(format!("{}", e)))?
             .success()
             .ok_or(Error::new($errmsg))?;
