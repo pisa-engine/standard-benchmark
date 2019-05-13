@@ -106,11 +106,11 @@ mod tests {
 }
 
 #[macro_export]
-macro_rules! checked_execute {
-    ($cmd:expr) => {{
+macro_rules! success {
+    ($cmd:expr; else $errmsg:expr) => {{
         $cmd.execute()
             .map_err(|e| Error(format!("{}", e)))?
             .success()
-            .ok_or(Error::new(""))?;
+            .ok_or(Error::new($errmsg))?;
     }};
 }

@@ -147,8 +147,8 @@ impl PisaExecutor for GitPisaExecutor {
 fn init_git(config: &Config, url: &str, branch: &str) -> Result<Box<PisaExecutor>, Error> {
     let dir = config.workdir.join("pisa");
     if !dir.exists() {
-        let clone = Process::new("git", &["clone", &url, dir.to_str().unwrap()]);
-        checked_execute!(printed(clone));
+        let clone = printed(Process::new("git", &["clone", &url, dir.to_str().unwrap()]));
+        success!(clone; else "cloning failed");
         dir.join("CMakeLists.txt")
             .exists()
             .ok_or(Error::new("cloning failed"))?;
@@ -159,7 +159,7 @@ fn init_git(config: &Config, url: &str, branch: &str) -> Result<Box<PisaExecutor
         warn!("Compilation has been suppressed");
     } else {
         let checkout = Process::new("git", &["-C", &dir.to_str().unwrap(), "checkout", branch]);
-        checked_execute!(printed(checkout));
+        success!(printed(checkout); else "checkout failed");
         create_dir_all(&build_dir).map_err(|e| Error(format!("{}", e)))?;
         let cmake = Process::new(
             "cmake",
@@ -171,9 +171,9 @@ fn init_git(config: &Config, url: &str, branch: &str) -> Result<Box<PisaExecutor
                 &build_dir.to_str().unwrap(),
             ],
         );
-        checked_execute!(printed(cmake));
+        success!(printed(cmake); else "cmake failed");
         let build = Process::new("cmake", &["--build", &build_dir.to_str().unwrap()]);
-        checked_execute!(printed(build));
+        success!(printed(build); else "build failed");
     }
     let executor = GitPisaExecutor::new(build_dir.join("bin"))?;
     Ok(Box::new(executor))
@@ -332,7 +332,7 @@ mod tests {
         let workdir = tmp.path().join("work");
         create_dir_all(&workdir).unwrap();
 
-        let conf = Config::new(&workdir, Box::new(GitSource::new("http://url", "master")));
+        let conf = Config::new(&workdir, Box::new(GitSource::new("xxx", "master")));
         assert_eq!(
             conf.source.executor(&conf).err(),
             Some(Error::new("cloning failed"))
