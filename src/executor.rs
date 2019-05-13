@@ -144,36 +144,32 @@ impl PisaExecutor for GitPisaExecutor {
     }
 }
 
+fn process(args: &'static str) -> Process {
+    let mut args = args.split(' ');
+    Process::new(args.next().unwrap(), args.collect::<Vec<&str>>())
+}
+
 fn init_git(config: &Config, url: &str, branch: &str) -> Result<Box<PisaExecutor>, Error> {
     let dir = config.workdir.join("pisa");
     if !dir.exists() {
-        let clone = printed(Process::new("git", &["clone", &url, dir.to_str().unwrap()]));
-        success!(clone; else "cloning failed");
+        let clone = Process::new("git", &["clone", &url, dir.to_str().unwrap()]);
+        execute!(printed(clone).command(); "cloning failed");
         dir.join("CMakeLists.txt")
             .exists()
             .ok_or(Error::new("cloning failed"))?;
     };
     let build_dir = dir.join("build");
+    create_dir_all(&build_dir).map_err(|e| Error(format!("{}", e)))?;
 
     if config.is_suppressed(Stage::Compile) {
         warn!("Compilation has been suppressed");
     } else {
-        let checkout = Process::new("git", &["-C", &dir.to_str().unwrap(), "checkout", branch]);
-        success!(printed(checkout); else "checkout failed");
-        create_dir_all(&build_dir).map_err(|e| Error(format!("{}", e)))?;
-        let cmake = Process::new(
-            "cmake",
-            &[
-                "-DCMAKE_BUILD_TYPE=Release",
-                "-S",
-                &dir.to_str().unwrap(),
-                "-B",
-                &build_dir.to_str().unwrap(),
-            ],
-        );
-        success!(printed(cmake); else "cmake failed");
-        let build = Process::new("cmake", &["--build", &build_dir.to_str().unwrap()]);
-        success!(printed(build); else "build failed");
+        let checkout = Process::new("git", &["checkout", branch]);
+        execute!(printed(checkout).command().current_dir(&dir); "checkout failed");
+        let cmake = process("cmake -DCMAKE_BUILD_TYPE=Release ..");
+        execute!(printed(cmake).command().current_dir(&build_dir); "cmake failed");
+        let build = process("cmake --build .");
+        execute!(printed(build).command().current_dir(&build_dir); "build failed");
     }
     let executor = GitPisaExecutor::new(build_dir.join("bin"))?;
     Ok(Box::new(executor))
