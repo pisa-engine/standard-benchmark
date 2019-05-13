@@ -21,6 +21,7 @@ matrix:
 before_cache: |
   if [[ "$TRAVIS_RUST_VERSION" == nightly ]]; then
     RUSTFLAGS="--cfg procmacro2_semver_exempt" cargo install cargo-tarpaulin -f
+    cargo install cargo-travis
   fi
 
 script:
@@ -32,6 +33,7 @@ script:
 
 after_success: |
   if [[ "$TRAVIS_RUST_VERSION" == nightly ]]; then
+    cargo doc-upload --token ${GITHUB_TOKEN}
     cargo tarpaulin --out Xml
     bash <(curl -s https://codecov.io/bash)
   fi
