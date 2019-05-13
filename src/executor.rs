@@ -355,6 +355,7 @@ mod tests {
         let tmp = TempDir::new("tmp").unwrap();
         let workdir = tmp.path().join("work");
         let origin_dir = tmp.path().join("origin");
+        create_dir_all(&workdir).unwrap();
         create_dir_all(&origin_dir).unwrap();
         let run = run_from(origin_dir.clone());
         run("git init");
