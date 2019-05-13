@@ -1,0 +1,1 @@
+initSidebarItems({"struct":[["DockerSource",""],["GitPisaExecutor","An executor using compiled code from git repository."],["GitSource",""],["SystemPathExecutor","This executor simply executes the commands as passed, as if they were on the system path."]],"trait":[["PisaExecutor","Implementations of this trait execute PISA tools."],["PisaSource",""]]});

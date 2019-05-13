@@ -1,0 +1,1 @@
+initSidebarItems({"fn":[["app",""],["exit_gracefully","Prints out the error with the logger and exits the program. `# extern crate stdbench; # use::stdbench::*; let x: Result<i32, &str> = Ok(-3); let y = x.unwrap_or_else(exit_gracefully);`"]],"macro":[["must_succeed",""]]});

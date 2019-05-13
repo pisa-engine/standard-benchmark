@@ -1,0 +1,1 @@
+initSidebarItems({"struct":[["CollectionConfig","Configuration of a tested collection."],["Config","Stores a full config for benchmark run."]]});
