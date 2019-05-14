@@ -1,7 +1,7 @@
 extern crate yaml_rust;
 
 use super::executor::*;
-use super::{Error, Stage};
+use super::{fail, Error, Stage};
 use std::collections::HashSet;
 use std::convert::From;
 use std::fs::read_to_string;
@@ -52,8 +52,8 @@ impl CollectionConfig {
             yaml["forward_index"].as_str(),
             yaml["inverted_index"].as_str(),
         ) {
-            (None, _, _, _) => Err(Error::new("undefined name")),
-            (_, None, _, _) => Err(Error::new("undefined collection_dir")),
+            (None, _, _, _) => fail!("undefined name"),
+            (_, None, _, _) => fail!("undefined collection_dir"),
             (Some(name), Some(collection_dir), fwd, inv) => Ok(CollectionConfig {
                 name: name.to_string(),
                 description: yaml["description"].as_str().map(String::from),
@@ -86,6 +86,30 @@ impl Config {
         }
     }
 
+    /// # Example
+    ///
+    /// In the following example, the code in the last line will clone
+    /// the repository and build the source code (unless `config` suppresses
+    /// this stage).
+    /// ```
+    /// # extern crate stdbench;
+    /// # use stdbench::executor::*;
+    /// # use stdbench::config::*;
+    /// # use std::path::PathBuf;
+    /// let source = GitSource::new(
+    ///     "https://github.com/pisa-engine/pisa.git",
+    ///     "master"
+    /// );
+    /// let config = Config::new(PathBuf::from("/workdir"), Box::new(source.clone()));
+    /// // Declare `config` as `mut` and execute the following line to skip
+    /// // the compilation stage:
+    /// // config.suppress_stage(Stage::Compile);
+    /// let executor = config.executor();
+    /// ```
+    pub fn executor(&self) -> Result<Box<PisaExecutor>, Error> {
+        self.source.executor(&self)
+    }
+
     /// Load a config from a YAML file.
     ///
     /// # Example
@@ -107,7 +131,7 @@ impl Config {
         let content = read_to_string(&file)?;
         match YamlLoader::load_from_str(&content) {
             Ok(yaml) => match (yaml[0]["workdir"].as_str(), &yaml[0]["source"]) {
-                (None, _) => Err(Error::new("missing or corrupted workdir")),
+                (None, _) => fail!("missing or corrupted workdir"),
                 (Some(workdir), source) => {
                     let source = PisaSource::parse(source)?;
                     let mut conf = Config::new(PathBuf::from(workdir), source);
@@ -128,16 +152,16 @@ impl Config {
                                 }
                             }
                             if conf.collections.is_empty() {
-                                Err(Error::new("no correct collection configurations found"))
+                                fail!("no correct collection configurations found")
                             } else {
                                 Ok(conf)
                             }
                         }
-                        _ => Err(Error::new("missing or corrupted collections config")),
+                        _ => fail!("missing or corrupted collections config"),
                     }
                 }
             },
-            Err(_) => Err(Error::new("could not parse YAML file")),
+            Err(_) => fail!("could not parse YAML file"),
         }
     }
 
@@ -212,7 +236,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             test_conf().parse_collection(&yaml[0]),
-            Err(Error::new("undefined collection_dir"))
+            fail!("undefined collection_dir")
         );
     }
 

@@ -12,15 +12,52 @@ use std::fmt::Debug;
 use std::path::{Path, PathBuf};
 use yaml_rust::Yaml;
 
+/// Defines how to acquire PISA programs for later execution.
 pub trait PisaSource: Debug + Downcast {
+    /// Initially, a source only holds information. At this stage, it runs
+    /// any processes required to acquire PISA executables, and returns an
+    /// executor object.
+    ///
+    /// # Example
+    ///
+    /// In the following example, the code in the last line will clone
+    /// the repository and build the source code (unless `config` suppresses
+    /// this stage).
+    /// ```
+    /// # extern crate stdbench;
+    /// # use stdbench::executor::*;
+    /// # use stdbench::config::*;
+    /// # use std::path::PathBuf;
+    /// let source = GitSource::new(
+    ///     "https://github.com/pisa-engine/pisa.git",
+    ///     "master"
+    /// );
+    /// let config = Config::new(PathBuf::from("/workdir"), Box::new(source.clone()));
+    /// let executor = source.executor(&config);
+    /// ```
+    ///
+    /// Typically, however, you would directly run `executor()` method of `config`,
+    /// which will internally run the function of `source`:
+    /// ```
+    /// # extern crate stdbench;
+    /// # use stdbench::executor::*;
+    /// # use stdbench::config::*;
+    /// # use std::path::PathBuf;
+    /// # let source = GitSource::new(
+    /// #     "https://github.com/pisa-engine/pisa.git",
+    /// #     "master"
+    /// # );
+    /// # let config = Config::new(PathBuf::from("/workdir"), Box::new(source.clone()));
+    /// let executor = config.executor();
+    /// ```
     fn executor(&self, config: &Config) -> Result<Box<PisaExecutor>, Error>;
 }
 impl_downcast!(PisaSource);
 impl PisaSource {
     fn parse_git_source(yaml: &Yaml) -> Result<GitSource, Error> {
         match (yaml["url"].as_str(), yaml["branch"].as_str()) {
-            (None, _) => Err(Error::new("missing source.url")),
-            (_, None) => Err(Error::new("missing source.branch")),
+            (None, _) => fail!("missing source.url"),
+            (_, None) => fail!("missing source.branch"),
             (Some(url), Some(branch)) => Ok(GitSource {
                 url: String::from(url),
                 branch: String::from(branch),
@@ -30,7 +67,7 @@ impl PisaSource {
 
     fn parse_docker_source(yaml: &Yaml) -> Result<DockerSource, Error> {
         match yaml["tag"].as_str() {
-            None => Err(Error::new("missing source.tag")),
+            None => fail!("missing source.tag"),
             Some(tag) => Ok(DockerSource {
                 tag: String::from(tag),
             }),
@@ -58,14 +95,47 @@ impl PisaSource {
             Some(typ) => match typ {
                 "git" => Ok(Box::new(PisaSource::parse_git_source(&yaml)?)),
                 "docker" => Ok(Box::new(PisaSource::parse_docker_source(&yaml)?)),
-                typ => Err(Error(format!("unknown source type: {}", typ))),
+                typ => fail!("unknown source type: {}", typ),
             },
-            None => Err(Error::new("missing or corrupted source.type")),
+            None => fail!("missing or corrupted source.type"),
         }
     }
 }
 
-#[derive(Debug, PartialEq)]
+/// Defines a path where the PISA executables already exist.
+///
+/// # Example
+///
+/// Assuming you cloned PISA repository in `/home/user/`, then you might
+/// define the following source:
+/// ```
+/// # extern crate stdbench;
+/// # use stdbench::executor::*;
+/// let source = CustomPathSource::new("/home/user/pisa/build/bin");
+/// ```
+#[derive(Debug, PartialEq, Clone)]
+pub struct CustomPathSource {
+    pub bin: PathBuf,
+}
+impl CustomPathSource {
+    pub fn new<P: AsRef<Path>>(bin: P) -> CustomPathSource {
+        CustomPathSource {
+            bin: bin.as_ref().to_path_buf(),
+        }
+    }
+}
+impl PisaSource for CustomPathSource {
+    fn executor(&self, config: &Config) -> Result<Box<PisaExecutor>, Error> {
+        let bin = if self.bin.is_absolute() {
+            config.workdir.join(&self.bin)
+        } else {
+            self.bin.clone()
+        };
+        Ok(Box::new(CustomPathExecutor::new(bin)?))
+    }
+}
+
+#[derive(Debug, PartialEq, Clone)]
 pub struct GitSource {
     pub url: String,
     pub branch: String,
@@ -118,27 +188,27 @@ impl PisaExecutor for SystemPathExecutor {
 
 /// An executor using compiled code from git repository.
 #[derive(Debug, PartialEq)]
-pub struct GitPisaExecutor {
+pub struct CustomPathExecutor {
     bin: PathBuf,
 }
-impl GitPisaExecutor {
-    pub fn new<P>(bin_path: P) -> Result<GitPisaExecutor, Error>
+impl CustomPathExecutor {
+    pub fn new<P>(bin_path: P) -> Result<CustomPathExecutor, Error>
     where
         P: AsRef<Path>,
     {
         if bin_path.as_ref().is_dir() {
-            Ok(GitPisaExecutor {
+            Ok(CustomPathExecutor {
                 bin: bin_path.as_ref().to_path_buf(),
             })
         } else {
-            Err(Error(format!(
-                "Failed to construct git executor: not a directory: {}",
+            fail!(
+                "Failed to construct executor: not a directory: {}",
                 bin_path.as_ref().display()
-            )))
+            )
         }
     }
 }
-impl PisaExecutor for GitPisaExecutor {
+impl PisaExecutor for CustomPathExecutor {
     fn command(&self, program: &str, args: &[&str]) -> Process {
         Process::new(&self.bin.join(program).to_str().unwrap().to_string(), args)
     }
@@ -168,7 +238,7 @@ fn init_git(config: &Config, url: &str, branch: &str) -> Result<Box<PisaExecutor
         let build = process("cmake --build .");
         execute!(printed(build).command().current_dir(&build_dir); "build failed");
     }
-    let executor = GitPisaExecutor::new(build_dir.join("bin"))?;
+    let executor = CustomPathExecutor::new(build_dir.join("bin"))?;
     Ok(Box::new(executor))
 }
 
@@ -179,9 +249,42 @@ mod tests {
 
     use super::*;
     use std::fs::create_dir_all;
+    use std::fs::Permissions;
+    use std::os::unix::fs::PermissionsExt;
     use std::process::Command;
     use tempdir::TempDir;
     use yaml_rust::YamlLoader;
+
+    #[test]
+    #[cfg_attr(target_family, unix)]
+    fn test_custom_path_source_executor() {
+        let tmp = TempDir::new("tmp").unwrap();
+        let program = "#!/bin/bash
+echo ok";
+        let program_path = tmp.path().join("program");
+        std::fs::write(&program_path, &program).unwrap();
+        let permissions = Permissions::from_mode(0o744);
+        std::fs::set_permissions(&program_path, permissions).unwrap();
+
+        let source = CustomPathSource::new(tmp.path());
+        let config = Config::new("workdir", Box::new(source));
+        let executor = config.executor().unwrap();
+        let output = executor.command("program", &[]).command().output().unwrap();
+        assert_eq!(std::str::from_utf8(&output.stdout).unwrap(), "ok\n");
+    }
+
+    #[test]
+    fn test_custom_path_source_fail() {
+        let source = CustomPathSource::new("nonexistent-path");
+        let config = Config::new("workdir", Box::new(source));
+        let executor = config.executor().err();
+        assert_eq!(
+            executor,
+            Some(Error::new(
+                "Failed to construct executor: not a directory: nonexistent-path"
+            ))
+        );
+    }
 
     #[test]
     fn test_parse_git_source() {
@@ -211,7 +314,7 @@ mod tests {
                 )
                 .unwrap()[0]
             ),
-            Err(Error::new("missing source.branch"))
+            fail!("missing source.branch")
         );
         assert_eq!(
             PisaSource::parse_git_source(
@@ -222,7 +325,7 @@ mod tests {
                 )
                 .unwrap()[0]
             ),
-            Err(Error::new("missing source.url"))
+            fail!("missing source.url")
         );
     }
 
@@ -252,7 +355,7 @@ mod tests {
                 )
                 .unwrap()[0]
             ),
-            Err(Error::new("missing source.tag"))
+            fail!("missing source.tag")
         );
     }
 
@@ -321,10 +424,8 @@ mod tests {
     #[test]
     fn test_git_executor_wrong_bin() {
         assert_eq!(
-            GitPisaExecutor::new(PathBuf::from("/nonexistent/path")),
-            Err(Error::new(
-                "Failed to construct git executor: not a directory: /nonexistent/path"
-            ))
+            CustomPathExecutor::new(PathBuf::from("/nonexistent/path")),
+            fail!("Failed to construct executor: not a directory: /nonexistent/path")
         );
     }
 
@@ -382,8 +483,8 @@ mod tests {
             conf.source
                 .executor(&conf)
                 .unwrap()
-                .downcast_ref::<GitPisaExecutor>(),
-            GitPisaExecutor::new(
+                .downcast_ref::<CustomPathExecutor>(),
+            CustomPathExecutor::new(
                 workdir
                     .join("pisa")
                     .join("build")
@@ -407,7 +508,7 @@ mod tests {
         assert_eq!(
             conf.source.executor(&conf).err(),
             Some(Error(format!(
-                "Failed to construct git executor: not a directory: {}",
+                "Failed to construct executor: not a directory: {}",
                 workdir
                     .join("pisa")
                     .join("build")

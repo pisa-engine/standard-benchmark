@@ -135,6 +135,27 @@ macro_rules! execute {
     }};
 }
 
+/// # Example
+///
+/// ```
+/// # #[macro_use]
+/// # extern crate stdbench;
+/// # use stdbench::Error;
+/// # fn main() {
+/// fn always_fail_with(msg: &str) -> Result<(), Error> {
+///     fail!("Failed with message: {}", msg)
+/// }
+///
+/// assert_eq!(always_fail_with("oops"), Err(Error::new("Failed with message: oops")));
+/// # }
+/// ```
+#[macro_export]
+macro_rules! fail {
+    ($($arg:tt)+) => (
+        Err(Error(format!($($arg)+)))
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

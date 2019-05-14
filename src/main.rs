@@ -134,7 +134,7 @@ fn main() {
     let config = parse_config(env::args().collect()).unwrap_or_else(exit_gracefully);
 
     info!("Code source: {:?}", &config.source);
-    let executor = config.source.executor(&config).unwrap_or_else(|e| {
+    let executor = config.executor().unwrap_or_else(|e| {
         println!("Failed to construct executor: {}", e);
         process::exit(1);
     });
