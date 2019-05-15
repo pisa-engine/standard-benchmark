@@ -1,7 +1,8 @@
 extern crate yaml_rust;
 
 use super::executor::*;
-use super::{fail, Error, Stage};
+use super::source::*;
+use super::*;
 use std::collections::HashSet;
 use std::convert::From;
 use std::fs::read_to_string;
@@ -93,7 +94,7 @@ impl Config {
     /// this stage).
     /// ```
     /// # extern crate stdbench;
-    /// # use stdbench::executor::*;
+    /// # use stdbench::source::*;
     /// # use stdbench::config::*;
     /// # use std::path::PathBuf;
     /// let source = GitSource::new(

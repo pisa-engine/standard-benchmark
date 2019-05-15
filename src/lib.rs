@@ -13,6 +13,7 @@ use std::fmt;
 use std::fs::create_dir_all;
 
 pub mod config;
+pub mod source;
 pub mod executor;
 
 #[cfg_attr(tarpaulin, skip)]
