@@ -1,7 +1,6 @@
-extern crate clap;
-#[macro_use]
-extern crate experiment;
 extern crate boolinator;
+extern crate clap;
+extern crate experiment;
 extern crate git2;
 extern crate glob;
 extern crate json;
@@ -11,7 +10,7 @@ extern crate stderrlog;
 use boolinator::Boolinator;
 use clap::{App, Arg};
 use experiment::process::{Process, ProcessPipeline};
-use experiment::Verbosity;
+use experiment::{pipeline, Verbosity};
 use glob::glob;
 use log::{error, info, warn};
 use std::env;
@@ -20,7 +19,7 @@ use std::path::PathBuf;
 use std::process;
 use stdbench::config::{CollectionConfig, Config};
 use stdbench::executor::PisaExecutor;
-use stdbench::{Error, Stage};
+use stdbench::{execute, Error, Stage};
 
 pub fn app<'a, 'b>() -> App<'a, 'b> {
     App::new("PISA standard benchmark for regression tests.")
@@ -113,18 +112,8 @@ pub fn exit_gracefully<E: Display, R>(e: E) -> R {
     process::exit(1);
 }
 
-#[macro_export]
-macro_rules! must_succeed {
-    ($cmd:expr) => {{
-        let status = $cmd;
-        if !status.success() {
-            std::process::exit(status.code().unwrap_or(1));
-        }
-    }};
-}
-
 #[cfg_attr(tarpaulin, skip)]
-fn main() {
+fn main() -> Result<(), Error> {
     stderrlog::new()
         .verbosity(100)
         .module(module_path!())
@@ -153,7 +142,7 @@ fn main() {
                 let pipeline =
                     parse_command(&*executor, &collection).unwrap_or_else(exit_gracefully);
                 println!("EXEC - {}", pipeline.display(Verbosity::Verbose));
-                must_succeed!(pipeline.pipe().status().unwrap_or_else(exit_gracefully));
+                execute!(pipeline.pipe(); "Failed to parse");
             }
             info!("[{}] [build] [invert] Inverting index", name);
             unimplemented!();
@@ -161,6 +150,7 @@ fn main() {
             //unimplemented!();
         }
     }
+    Ok(())
 }
 
 #[cfg(test)]

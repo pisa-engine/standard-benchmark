@@ -1,11 +1,8 @@
-#[macro_use]
-#[allow(unused_imports)]
-extern crate json;
-extern crate experiment;
-#[macro_use]
-#[allow(unused_imports)]
 extern crate downcast_rs;
+extern crate experiment;
+extern crate json;
 
+use downcast_rs::impl_downcast;
 use experiment::process::Process;
 use experiment::Verbosity;
 use log::info;
@@ -13,8 +10,8 @@ use std::fmt;
 use std::fs::create_dir_all;
 
 pub mod config;
-pub mod source;
 pub mod executor;
+pub mod source;
 
 #[cfg_attr(tarpaulin, skip)]
 #[derive(Debug, PartialEq)]
