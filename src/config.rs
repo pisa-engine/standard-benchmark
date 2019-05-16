@@ -3,6 +3,7 @@ extern crate yaml_rust;
 use super::executor::*;
 use super::source::*;
 use super::*;
+use log::error;
 use std::collections::HashSet;
 use std::convert::From;
 use std::fs::read_to_string;
@@ -143,12 +144,8 @@ impl Config {
                                     Ok(coll_config) => {
                                         conf.collections.push(coll_config);
                                     }
-                                    // TODO: Err(err) => error!("Unable to parse collection config: {}", err),
                                     Err(err) => {
-                                        println!(
-                                            "ERROR - Unable to parse collection config: {}",
-                                            err
-                                        );
+                                        error!("Unable to parse collection config: {}", err)
                                     }
                                 }
                             }

@@ -1,25 +1,18 @@
-extern crate boolinator;
 extern crate clap;
 extern crate experiment;
 extern crate git2;
-extern crate glob;
 extern crate json;
 extern crate stdbench;
 extern crate stderrlog;
 
-use boolinator::Boolinator;
 use clap::{App, Arg};
-use experiment::process::{Process, ProcessPipeline};
-use experiment::{pipeline, Verbosity};
-use glob::glob;
 use log::{error, info, warn};
 use std::env;
-use std::fmt::Display;
 use std::path::PathBuf;
 use std::process;
-use stdbench::config::{CollectionConfig, Config};
-use stdbench::executor::PisaExecutor;
-use stdbench::{execute, Error, Stage};
+use stdbench::build::build_collection;
+use stdbench::config::Config;
+use stdbench::{Error, Stage};
 
 pub fn app<'a, 'b>() -> App<'a, 'b> {
     App::new("PISA standard benchmark for regression tests.")
@@ -58,99 +51,27 @@ fn parse_config(args: Vec<String>) -> Result<stdbench::config::Config, Error> {
     Ok(config)
 }
 
-fn parse_wapo_command(
-    executor: &PisaExecutor,
-    collection: &CollectionConfig,
-) -> Result<ProcessPipeline, Error> {
-    let input_path = collection.collection_dir.join("data/*.jl");
-    let input = input_path.to_str().unwrap();
-    let input_files: Vec<_> = glob(input).unwrap().filter_map(Result::ok).collect();
-    (!input_files.is_empty()).ok_or(Error(format!(
-        "could not resolve any files for pattern: {}",
-        input
-    )))?;
-    Ok(pipeline!(
-        Process::new("cat", &input_files),
-        executor.command(
-            "parse_collection",
-            &[
-                "-o",
-                collection.forward_index.to_str().unwrap(),
-                "-f",
-                "wapo",
-                "--stemmer",
-                "porter2",
-                "--content-parser",
-                "html"
-            ]
-        )
-    ))
-}
-
-fn parse_command(
-    executor: &PisaExecutor,
-    collection: &CollectionConfig,
-) -> Result<ProcessPipeline, Error> {
-    match collection.name.as_ref() {
-        "wapo" => parse_wapo_command(executor, collection),
-        _ => unimplemented!(""),
-    }
-}
-
-/// Prints out the error with the logger and exits the program.
-/// ```
-/// # extern crate stdbench;
-/// # use::stdbench::*;
-/// let x: Result<i32, &str> = Ok(-3);
-/// let y = x.unwrap_or_else(exit_gracefully);
-/// ```
 #[cfg_attr(tarpaulin, skip)]
-pub fn exit_gracefully<E: Display, R>(e: E) -> R {
-    error!("{}", e);
-    // TODO: why is error not working?
-    println!("ERROR - {}", e);
-    process::exit(1);
-}
-
-#[cfg_attr(tarpaulin, skip)]
-fn main() -> Result<(), Error> {
-    stderrlog::new()
-        .verbosity(100)
-        .module(module_path!())
-        .init()
-        .unwrap();
-    let config = parse_config(env::args().collect()).unwrap_or_else(exit_gracefully);
-
+fn run() -> Result<(), Error> {
+    stderrlog::new().verbosity(100).init().unwrap();
+    let config = parse_config(env::args().collect())?;
     info!("Code source: {:?}", &config.source);
-    let executor = config.executor().unwrap_or_else(|e| {
-        println!("Failed to construct executor: {}", e);
-        process::exit(1);
-    });
+    let executor = config.executor()?;
     info!("Executor ready");
 
     for collection in &config.collections {
         info!("Processing collection: {}", collection.name);
-        if config.is_suppressed(Stage::BuildIndex) {
-            warn!("Suppressed index building");
-        } else {
-            let name = &collection.name;
-            info!("[{}] [build] Building index", name);
-            if config.is_suppressed(Stage::ParseCollection) {
-                warn!("[{}] [build] [parse] Suppressed", name);
-            } else {
-                info!("[{}] [build] [parse] Parsing collection", name);
-                let pipeline =
-                    parse_command(&*executor, &collection).unwrap_or_else(exit_gracefully);
-                println!("EXEC - {}", pipeline.display(Verbosity::Verbose));
-                execute!(pipeline.pipe(); "Failed to parse");
-            }
-            info!("[{}] [build] [invert] Inverting index", name);
-            unimplemented!();
-            //info!("[{}] [build] [compress] Compressing index", name);
-            //unimplemented!();
-        }
+        build_collection(executor.as_ref(), collection, &config)?;
     }
     Ok(())
+}
+
+#[cfg_attr(tarpaulin, skip)]
+fn main() {
+    if let Err(err) = run() {
+        error!("{}", err);
+        process::exit(1);
+    }
 }
 
 #[cfg(test)]
@@ -204,45 +125,5 @@ collections:
         )
         .unwrap();
         assert!(conf.is_suppressed(Stage::Compile));
-    }
-
-    #[test]
-    fn test_parse_wapo_command() {
-        let tmp = TempDir::new("tmp").unwrap();
-        let data_dir = tmp.path().join("data");
-        fs::create_dir(&data_dir).unwrap();
-        let data_file = data_dir.join("TREC_Washington_Post_collection.v2.jl");
-        fs::File::create(&data_file).unwrap();
-        let executor = stdbench::executor::SystemPathExecutor::new();
-        let cconf = CollectionConfig {
-            name: String::from("wapo"),
-            description: None,
-            collection_dir: tmp.path().to_path_buf(),
-            forward_index: PathBuf::from("fwd"),
-            inverted_index: PathBuf::from("inv"),
-        };
-        let expected = format!(
-            "cat {}\n\t| parse_collection -o fwd \
-             -f wapo --stemmer porter2 --content-parser html",
-            data_file.to_str().unwrap()
-        );
-        assert_eq!(
-            format!(
-                "{}",
-                parse_wapo_command(&executor, &cconf)
-                    .unwrap()
-                    .display(Verbosity::Verbose)
-            ),
-            expected
-        );
-        assert_eq!(
-            format!(
-                "{}",
-                parse_command(&executor, &cconf)
-                    .unwrap()
-                    .display(Verbosity::Verbose)
-            ),
-            expected
-        );
     }
 }
