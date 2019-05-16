@@ -108,7 +108,9 @@ collections:
       description: WashingtonPost.v2
       collection_dir: coll
       forward_index: fwd/wapo
-      inverted_index: inv/wapo";
+      inverted_index: inv/wapo
+      encodings:
+        - block_simdbp";
         fs::write(config_file.to_str().unwrap(), &yml).unwrap();
         let conf = parse_config(
             [

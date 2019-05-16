@@ -22,6 +22,10 @@ impl Error {
     pub fn new(msg: &str) -> Error {
         Error(String::from(msg))
     }
+    pub fn prepend(msg: &str) -> impl Fn(Error) -> Error {
+        let msg = String::from(msg);
+        move |err| Error(format!("{}: {}", msg, err))
+    }
 }
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {

@@ -10,6 +10,14 @@ use std::fs::read_to_string;
 use std::path::{Path, PathBuf};
 use yaml_rust::{Yaml, YamlLoader};
 
+#[derive(Debug, PartialEq)]
+pub struct Encoding(String);
+impl Encoding {
+    pub fn new(enc: &str) -> Encoding {
+        Encoding(String::from(enc))
+    }
+}
+
 /// Configuration of a tested collection.
 #[derive(Debug, PartialEq)]
 pub struct CollectionConfig {
@@ -18,6 +26,7 @@ pub struct CollectionConfig {
     pub collection_dir: PathBuf,
     pub forward_index: PathBuf,
     pub inverted_index: PathBuf,
+    pub encodings: Vec<Encoding>,
 }
 impl CollectionConfig {
     /// Constructs a collection config from a YAML object.
@@ -34,7 +43,9 @@ impl CollectionConfig {
     /// description: WashingtonPost.v2
     /// collection_dir: /path/to/wapo
     /// forward_index: fwd/wapo
-    /// inverted_index: /absolute/path/to/inv/wapo").unwrap();
+    /// inverted_index: /absolute/path/to/inv/wapo
+    /// encodings:
+    ///   - block_simdbp").unwrap();
     /// let conf = CollectionConfig::from_yaml(&yaml[0]);
     /// assert_eq!(
     ///     conf,
@@ -43,7 +54,8 @@ impl CollectionConfig {
     ///         description: Some(String::from("WashingtonPost.v2")),
     ///         collection_dir: PathBuf::from("/path/to/wapo"),
     ///         forward_index: PathBuf::from("fwd/wapo"),
-    ///         inverted_index: PathBuf::from("/absolute/path/to/inv/wapo")
+    ///         inverted_index: PathBuf::from("/absolute/path/to/inv/wapo"),
+    ///         encodings: vec![Encoding::new("block_simdbp")]
     ///     }
     /// ));
     /// ```
@@ -53,16 +65,44 @@ impl CollectionConfig {
             yaml["collection_dir"].as_str(),
             yaml["forward_index"].as_str(),
             yaml["inverted_index"].as_str(),
+            &yaml["encodings"],
         ) {
-            (None, _, _, _) => fail!("undefined name"),
-            (_, None, _, _) => fail!("undefined collection_dir"),
-            (Some(name), Some(collection_dir), fwd, inv) => Ok(CollectionConfig {
-                name: name.to_string(),
-                description: yaml["description"].as_str().map(String::from),
-                collection_dir: PathBuf::from(collection_dir),
-                forward_index: PathBuf::from(fwd.unwrap_or("fwd/wapo")),
-                inverted_index: PathBuf::from(inv.unwrap_or("inv/wapo")),
-            }),
+            (None, _, _, _, _) => fail!("undefined name"),
+            (_, None, _, _, _) => fail!("undefined collection_dir"),
+            (Some(name), Some(collection_dir), fwd, inv, encodings) => {
+                let encodings = Self::parse_encodings(&encodings).map_err(Error::prepend(
+                    &format!("failed to parse collection {}", name),
+                ))?;
+                Ok(CollectionConfig {
+                    name: name.to_string(),
+                    description: yaml["description"].as_str().map(String::from),
+                    collection_dir: PathBuf::from(collection_dir),
+                    forward_index: PathBuf::from(fwd.unwrap_or("fwd/wapo")),
+                    inverted_index: PathBuf::from(inv.unwrap_or("inv/wapo")),
+                    encodings,
+                })
+            }
+        }
+    }
+
+    fn parse_encodings(yaml: &Yaml) -> Result<Vec<Encoding>, Error> {
+        let encodings = yaml
+            .as_vec()
+            .ok_or_else(|| Error::new("missing or corrupted encoding list"))?;
+        let encodings: Vec<Encoding> = encodings
+            .into_iter()
+            .filter_map(|enc| match enc.as_str() {
+                Some(enc) => Some(Encoding::new(enc)),
+                None => {
+                    error!("could not parse encoding: {:?}", enc);
+                    None
+                }
+            })
+            .collect();
+        if encodings.is_empty() {
+            fail!("no valid encoding entries")
+        } else {
+            Ok(encodings)
         }
     }
 }
@@ -188,9 +228,11 @@ impl Config {
 #[cfg(test)]
 mod tests {
     extern crate tempdir;
+    extern crate yaml_rust;
 
     use super::*;
     use tempdir::TempDir;
+    use yaml_rust::YamlLoader;
 
     fn test_conf() -> Config {
         Config::new(PathBuf::from("/work"), Box::new(GitSource::new("", "")))
@@ -204,6 +246,40 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_encodings() {
+        assert_eq!(
+            CollectionConfig::parse_encodings(
+                &YamlLoader::load_from_str("- block_simdbp").unwrap()[0]
+            ),
+            Ok(vec![Encoding::new("block_simdbp")])
+        );
+        assert_eq!(
+            CollectionConfig::parse_encodings(
+                &YamlLoader::load_from_str(
+                    "- block_simdbp\n- complex: y\n  object: x\n- block_qmx"
+                )
+                .unwrap()[0]
+            ),
+            Ok(vec![
+                Encoding::new("block_simdbp"),
+                Encoding::new("block_qmx")
+            ])
+        );
+        assert_eq!(
+            CollectionConfig::parse_encodings(
+                &YamlLoader::load_from_str("some string").unwrap()[0]
+            ),
+            Err(Error::new("missing or corrupted encoding list"))
+        );
+        assert_eq!(
+            CollectionConfig::parse_encodings(
+                &YamlLoader::load_from_str("- complex: x").unwrap()[0]
+            ),
+            Err(Error::new("no valid encoding entries"))
+        );
+    }
+
+    #[test]
     fn test_parse_collection() {
         let yaml = yaml_rust::YamlLoader::load_from_str(
             "
@@ -211,7 +287,9 @@ mod tests {
         description: WashingtonPost.v2
         collection_dir: /path/to/wapo
         forward_index: fwd/wapo
-        inverted_index: /absolute/path/to/inv/wapo",
+        inverted_index: /absolute/path/to/inv/wapo
+        encodings:
+          - block_simdbp",
         )
         .unwrap();
         let coll = test_conf().parse_collection(&yaml[0]).unwrap();
@@ -239,6 +317,23 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_collection_missing_encodings() {
+        let yaml = yaml_rust::YamlLoader::load_from_str(
+            "
+        name: wapo
+        description: WashingtonPost.v2
+        collection_dir: dir
+        forward_index: fwd/wapo
+        inverted_index: /absolute/path/to/inv/wapo",
+        )
+        .unwrap();
+        assert_eq!(
+            test_conf().parse_collection(&yaml[0]),
+            fail!("failed to parse collection wapo: missing or corrupted encoding list")
+        );
+    }
+
+    #[test]
     fn test_config_from_file() -> std::io::Result<()> {
         let tmp = TempDir::new("tmp")?;
         let config_file = tmp.path().join("conf.yml");
@@ -253,7 +348,9 @@ collections:
       description: WashingtonPost.v2
       collection_dir: /collections/wapo
       forward_index: fwd/wapo
-      inverted_index: inv/wapo";
+      inverted_index: inv/wapo
+      encodings:
+        - block_simdbp";
         std::fs::write(&config_file, yml)?;
         let conf = Config::from_file(config_file).unwrap();
         assert_eq!(conf.workdir, PathBuf::from("/tmp"));
@@ -272,6 +369,7 @@ collections:
                 collection_dir: PathBuf::from("/collections/wapo"),
                 forward_index: PathBuf::from("/tmp/fwd/wapo"),
                 inverted_index: PathBuf::from("/tmp/inv/wapo"),
+                encodings: vec![Encoding::new("block_simdbp")]
             }
         );
         Ok(())

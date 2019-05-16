@@ -138,6 +138,7 @@ mod test {
             collection_dir: tmp.path().join("coll"),
             forward_index: PathBuf::from("fwd/wapo"),
             inverted_index: PathBuf::from("inv/wapo"),
+            encodings: vec![],
         });
 
         let data_dir = tmp.path().join("coll").join("data");
@@ -184,6 +185,7 @@ mod test {
             collection_dir: tmp.path().to_path_buf(),
             forward_index: PathBuf::from("fwd"),
             inverted_index: PathBuf::from("inv"),
+            encodings: vec![],
         };
         let expected = format!(
             "cat {}\n\t| parse_collection -o fwd \
