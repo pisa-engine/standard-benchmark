@@ -51,6 +51,9 @@ impl CustomPathExecutor {
             )
         }
     }
+    pub fn path(&self) -> &Path {
+        self.bin.as_path()
+    }
 }
 impl PisaExecutor for CustomPathExecutor {
     fn command(&self, program: &str, args: &[&str]) -> Process {
@@ -63,9 +66,9 @@ mod tests {
     extern crate downcast_rs;
     extern crate tempdir;
 
-    use super::*;
     use super::config::*;
     use super::source::*;
+    use super::*;
     use std::fs::create_dir_all;
     use std::fs::Permissions;
     use std::os::unix::fs::PermissionsExt;
@@ -88,19 +91,6 @@ echo ok";
         let executor = config.executor().unwrap();
         let output = executor.command("program", &[]).command().output().unwrap();
         assert_eq!(std::str::from_utf8(&output.stdout).unwrap(), "ok\n");
-    }
-
-    #[test]
-    fn test_custom_path_source_fail() {
-        let source = CustomPathSource::new("nonexistent-path");
-        let config = Config::new("workdir", Box::new(source));
-        let executor = config.executor().err();
-        assert_eq!(
-            executor,
-            Some(Error::new(
-                "Failed to construct executor: not a directory: nonexistent-path"
-            ))
-        );
     }
 
     #[test]

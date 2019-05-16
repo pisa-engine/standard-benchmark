@@ -22,7 +22,6 @@ use stdbench::config::{CollectionConfig, Config};
 use stdbench::executor::PisaExecutor;
 use stdbench::{Error, Stage};
 
-#[cfg_attr(tarpaulin, skip)]
 pub fn app<'a, 'b>() -> App<'a, 'b> {
     App::new("PISA standard benchmark for regression tests.")
         .version("1.0")

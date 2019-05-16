@@ -134,9 +134,9 @@ impl CustomPathSource {
 impl PisaSource for CustomPathSource {
     fn executor(&self, config: &Config) -> Result<Box<PisaExecutor>, Error> {
         let bin = if self.bin.is_absolute() {
-            config.workdir.join(&self.bin)
-        } else {
             self.bin.clone()
+        } else {
+            config.workdir.join(&self.bin)
         };
         Ok(Box::new(CustomPathExecutor::new(bin)?))
     }
@@ -205,6 +205,7 @@ mod tests {
     extern crate tempdir;
 
     use super::*;
+    use tempdir::TempDir;
     use yaml_rust::YamlLoader;
 
     #[test]
@@ -378,6 +379,35 @@ mod tests {
             )
             .err(),
             Some(Error::new("missing source.path"))
+        );
+    }
+
+    #[test]
+    fn test_custom_path_source_executor() {
+        let tmp = TempDir::new("test_custom_path_source_executor").unwrap();
+        let bin = tmp.path().join("bin");
+        std::fs::create_dir(&bin).unwrap();
+        assert_eq!(
+            Config::new(tmp.path(), Box::new(CustomPathSource::new("bin")))
+                .executor()
+                .unwrap()
+                .downcast_ref::<CustomPathExecutor>()
+                .unwrap()
+                .path(),
+            bin.as_path()
+        );
+    }
+
+    #[test]
+    fn test_custom_path_source_fail() {
+        let source = CustomPathSource::new("/nonexistent-path");
+        let config = Config::new("workdir", Box::new(source));
+        let executor = config.executor().err();
+        assert_eq!(
+            executor,
+            Some(Error::new(
+                "Failed to construct executor: not a directory: /nonexistent-path"
+            ))
         );
     }
 }
