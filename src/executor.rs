@@ -1,10 +1,14 @@
+//! Objects and functions dealing with executing PISA command line tools.
+
 extern crate boolinator;
 extern crate downcast_rs;
 extern crate experiment;
+extern crate failure;
 
 use super::*;
 use downcast_rs::Downcast;
 use experiment::process::Process;
+use std::convert::TryFrom;
 use std::fmt::Debug;
 use std::path::{Path, PathBuf};
 
@@ -20,8 +24,9 @@ impl_downcast!(PisaExecutor);
 #[derive(Default, Debug)]
 pub struct SystemPathExecutor {}
 impl SystemPathExecutor {
-    pub fn new() -> SystemPathExecutor {
-        SystemPathExecutor {}
+    /// A convenience function, equivalent to `SystemPathExecutor{}`.
+    pub fn new() -> Self {
+        Self {}
     }
 }
 impl PisaExecutor for SystemPathExecutor {
@@ -31,26 +36,40 @@ impl PisaExecutor for SystemPathExecutor {
 }
 
 /// An executor using compiled code from git repository.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct CustomPathExecutor {
     bin: PathBuf,
 }
-impl CustomPathExecutor {
-    pub fn new<P>(bin_path: P) -> Result<CustomPathExecutor, Error>
-    where
-        P: AsRef<Path>,
-    {
-        if bin_path.as_ref().is_dir() {
-            Ok(CustomPathExecutor {
-                bin: bin_path.as_ref().to_path_buf(),
+impl TryFrom<&Path> for CustomPathExecutor {
+    type Error = Error;
+    fn try_from(bin_path: &Path) -> Result<Self, Error> {
+        if bin_path.is_dir() {
+            Ok(Self {
+                bin: bin_path.to_path_buf(),
             })
         } else {
-            fail!(
+            Err(format!(
                 "Failed to construct executor: not a directory: {}",
-                bin_path.as_ref().display()
+                bin_path.display()
             )
+            .into())
         }
     }
+}
+impl TryFrom<PathBuf> for CustomPathExecutor {
+    type Error = Error;
+    fn try_from(bin_path: PathBuf) -> Result<Self, Error> {
+        Self::try_from(bin_path.as_path())
+    }
+}
+impl TryFrom<&str> for CustomPathExecutor {
+    type Error = Error;
+    fn try_from(bin_path: &str) -> Result<Self, Error> {
+        Self::try_from(Path::new(bin_path))
+    }
+}
+impl CustomPathExecutor {
+    /// Returns a reference to the `bin` path, where the tools reside.
     pub fn path(&self) -> &Path {
         self.bin.as_path()
     }
@@ -86,7 +105,7 @@ echo ok";
         let permissions = Permissions::from_mode(0o744);
         std::fs::set_permissions(&program_path, permissions).unwrap();
 
-        let source = CustomPathSource::new(tmp.path());
+        let source = CustomPathSource::from(tmp.path());
         let config = Config::new("workdir", Box::new(source));
         let executor = config.executor().unwrap();
         let output = executor.command("program", &[]).command().output().unwrap();
@@ -96,8 +115,8 @@ echo ok";
     #[test]
     fn test_git_executor_wrong_bin() {
         assert_eq!(
-            CustomPathExecutor::new(PathBuf::from("/nonexistent/path")),
-            fail!("Failed to construct executor: not a directory: /nonexistent/path")
+            CustomPathExecutor::try_from(PathBuf::from("/nonexistent/path")),
+            Err("Failed to construct executor: not a directory: /nonexistent/path".into())
         );
     }
 
@@ -110,7 +129,7 @@ echo ok";
         let conf = Config::new(&workdir, Box::new(GitSource::new("xxx", "master")));
         assert_eq!(
             conf.source.executor(&conf).err(),
-            Some(Error::new("cloning failed"))
+            Some(Error::from("cloning failed"))
         );
     }
 
@@ -156,7 +175,7 @@ echo ok";
                 .executor(&conf)
                 .unwrap()
                 .downcast_ref::<CustomPathExecutor>(),
-            CustomPathExecutor::new(
+            CustomPathExecutor::try_from(
                 workdir
                     .join("pisa")
                     .join("build")
@@ -179,7 +198,7 @@ echo ok";
         conf.suppress_stage(Stage::Compile);
         assert_eq!(
             conf.source.executor(&conf).err(),
-            Some(Error(format!(
+            Some(Error::from(format!(
                 "Failed to construct executor: not a directory: {}",
                 workdir
                     .join("pisa")

@@ -1,46 +1,32 @@
+#![deny(warnings, missing_docs)]
+#![deny(clippy::pedantic)]
+#![allow(clippy::module_name_repetitions)]
+
+//! This library contains all necessary tools to run a PISA benchmark
+//! on a collection of a significant size.
+
 extern crate downcast_rs;
 extern crate experiment;
+extern crate failure;
 extern crate json;
 
 use downcast_rs::impl_downcast;
+use error::Error;
 use experiment::process::Process;
 use experiment::Verbosity;
 use log::debug;
 use std::fmt;
 use std::fs::create_dir_all;
 use std::path::Path;
+use std::str::FromStr;
 
 pub mod build;
 pub mod config;
+pub mod error;
 pub mod executor;
 pub mod source;
 
-#[cfg_attr(tarpaulin, skip)]
-#[derive(Debug, PartialEq)]
-pub struct Error(pub String);
-impl Error {
-    pub fn new(msg: &str) -> Error {
-        Error(String::from(msg))
-    }
-    pub fn prepend(msg: &str) -> impl Fn(Error) -> Error {
-        let msg = String::from(msg);
-        move |err| Error(format!("{}: {}", msg, err))
-    }
-}
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-impl From<std::io::Error> for Error {
-    fn from(e: std::io::Error) -> Self {
-        Error(format!("{:?}", e))
-    }
-}
-
 /// Available stages of the experiment.
-#[cfg_attr(tarpaulin, skip)]
-#[derive(Debug, PartialEq, Eq, Hash)]
 /// # Examples
 ///
 /// All names are lowercase:
@@ -48,31 +34,44 @@ impl From<std::io::Error> for Error {
 /// ```
 /// # extern crate stdbench;
 /// # use::stdbench::*;
-/// assert_eq!(Stage::from_name("compile"), Some(Stage::Compile));
-/// assert_eq!(Stage::from_name("build"), Some(Stage::BuildIndex));
-/// assert_eq!(Stage::from_name("parse"), Some(Stage::ParseCollection));
-/// assert_eq!(Stage::from_name("invert"), Some(Stage::Invert));
-/// assert_eq!(Stage::from_name("?"), None);
+/// assert_eq!("compile".parse(), Ok(Stage::Compile));
+/// assert_eq!("build".parse(), Ok(Stage::BuildIndex));
+/// assert_eq!("parse".parse(), Ok(Stage::ParseCollection));
+/// assert_eq!("invert".parse(), Ok(Stage::Invert));
+/// assert_eq!("?".parse::<Stage>(), Err("invalid stage: ?".into()));
 /// assert_eq!("compile", format!("{}", Stage::Compile));
 /// assert_eq!("build", format!("{}", Stage::BuildIndex));
 /// assert_eq!("parse", format!("{}", Stage::ParseCollection));
 /// assert_eq!("invert", format!("{}", Stage::Invert));
 /// ```
+#[cfg_attr(tarpaulin, skip)]
+#[derive(Debug, PartialEq, Eq, Hash, Copy, Clone)]
 pub enum Stage {
+    /// Compilation stage; includes things such as: fetching code, configuring,
+    /// and actual compilation of the source code. The exact meaning depends on
+    /// the type of the source being processed.
     Compile,
+    /// Includes building forward/inverted index and index compressing.
     BuildIndex,
+    /// A subset of `BuildIndex`; means: build an inverted index but assume the
+    /// forward index has been already built (e.g., in a previous run).
     ParseCollection,
+    /// Inverting stage; mean: compress an inverted index but do not invert forward
+    /// index, assuming it has been done already.
+    /// **Note**: it implicitly suppresses parsing as in `ParseCollection`
     Invert,
 }
-impl Stage {
+impl FromStr for Stage {
+    type Err = Error;
+
     /// Parse string and return a stage enum if string correct.
-    pub fn from_name(name: &str) -> Option<Stage> {
+    fn from_str(name: &str) -> Result<Self, Error> {
         match name.to_lowercase().as_ref() {
-            "compile" => Some(Stage::Compile),
-            "build" => Some(Stage::BuildIndex),
-            "parse" => Some(Stage::ParseCollection),
-            "invert" => Some(Stage::Invert),
-            _ => None,
+            "compile" => Ok(Stage::Compile),
+            "build" => Ok(Stage::BuildIndex),
+            "parse" => Ok(Stage::ParseCollection),
+            "invert" => Ok(Stage::Invert),
+            _ => Err(format!("invalid stage: {}", &name).into()),
         }
     }
 }
@@ -106,11 +105,12 @@ pub fn printed(cmd: Process) -> Process {
 /// # extern crate stdbench;
 /// # extern crate tempdir;
 /// # use stdbench::*;
+/// # use stdbench::error::*;
 /// # use std::path::Path;
 /// # use tempdir::TempDir;
 /// assert_eq!(
 ///     ensure_parent_exists(Path::new("/")),
-///     Err(Error::new("cannot access parent of path: /"))
+///     Err(Error::from("cannot access parent of path: /"))
 /// );
 ///
 /// let tmp = TempDir::new("parent_exists").unwrap();
@@ -122,7 +122,7 @@ pub fn printed(cmd: Process) -> Process {
 pub fn ensure_parent_exists(path: &Path) -> Result<(), Error> {
     let parent = path
         .parent()
-        .ok_or_else(|| Error(format!("cannot access parent of path: {}", path.display())))?;
+        .ok_or_else(|| format!("cannot access parent of path: {}", path.display()))?;
     create_dir_all(parent)?;
     Ok(())
 }
@@ -145,7 +145,7 @@ pub fn ensure_parent_exists(path: &Path) -> Result<(), Error> {
 /// # #[macro_use]
 /// # extern crate stdbench;
 /// extern crate boolinator;
-/// # use stdbench::Error;
+/// # use stdbench::error::Error;
 /// # use std::process::Command;
 /// use boolinator::Boolinator;
 /// # fn main() {
@@ -165,31 +165,10 @@ pub fn ensure_parent_exists(path: &Path) -> Result<(), Error> {
 macro_rules! execute {
     ($cmd:expr; $errmsg:expr) => {{
         $cmd.status()
-            .map_err(|e| Error(format!("{}", e)))?
+            .map_err(|e| Error::from(format!("{}", e)))?
             .success()
-            .ok_or(Error::new($errmsg))?;
+            .ok_or(Error::from($errmsg))?;
     }};
-}
-
-/// # Example
-///
-/// ```
-/// # #[macro_use]
-/// # extern crate stdbench;
-/// # use stdbench::Error;
-/// # fn main() {
-/// fn always_fail_with(msg: &str) -> Result<(), Error> {
-///     fail!("Failed with message: {}", msg)
-/// }
-///
-/// assert_eq!(always_fail_with("oops"), Err(Error::new("Failed with message: oops")));
-/// # }
-/// ```
-#[macro_export]
-macro_rules! fail {
-    ($($arg:tt)+) => (
-        Err(Error(format!($($arg)+)))
-    )
 }
 
 #[cfg(test)]
@@ -199,6 +178,7 @@ mod tests {
     use super::executor::PisaExecutor;
     use super::*;
     use boolinator::Boolinator;
+    use std::convert::TryFrom;
     use std::fs::Permissions;
     use std::os::unix::fs::PermissionsExt;
     use tempdir::TempDir;
@@ -217,7 +197,7 @@ mod tests {
             std::fs::set_permissions(&program, Permissions::from_mode(0o744)).unwrap();
             Ok(())
         } else {
-            fail!("this function is only supported on UNIX systems")
+            Err("this function is only supported on UNIX systems".into())
         }
     }
 
@@ -227,7 +207,7 @@ mod tests {
         let echo = tmp.path().join("e");
         let output = tmp.path().join("output");
         make_echo(&echo, &output).unwrap();
-        let executor = super::executor::CustomPathExecutor::new(tmp.path()).unwrap();
+        let executor = super::executor::CustomPathExecutor::try_from(tmp.path()).unwrap();
         executor
             .command("e", &["arg1", "--a", "arg2"])
             .command()
@@ -235,13 +215,6 @@ mod tests {
             .unwrap();
         let output_text = std::fs::read_to_string(&output).unwrap();
         assert_eq!(output_text, format!("{} arg1 --a arg2", echo.display()));
-    }
-
-    #[test]
-    fn test_error() {
-        let error = Error::new("error message");
-        assert_eq!(error, Error(String::from("error message")));
-        assert_eq!(format!("{}", error), String::from("error message"));
     }
 
     #[test]
@@ -256,7 +229,7 @@ mod tests {
             execute!(MockCommand{}; "err");
             Ok(())
         };
-        assert_eq!(f().err(), Some(Error::new("Oops")));
+        assert_eq!(f().err(), Some(Error::from("Oops")));
     }
 
 }

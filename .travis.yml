@@ -32,6 +32,9 @@ script:
       cargo doc
 
 after_success: |
+  if [[ "$TRAVIS_RUST_VERSION" == stable ]]; then
+    cargo clippy
+  fi
   if [[ "$TRAVIS_RUST_VERSION" == nightly ]]; then
     cargo doc-upload --token ${GITHUB_TOKEN}
     cargo tarpaulin --out Xml --run-types Tests Doctests -v --ignore-tests --ignore-panics

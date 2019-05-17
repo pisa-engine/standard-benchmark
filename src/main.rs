@@ -10,9 +10,9 @@ use log::{error, info, warn};
 use std::env;
 use std::path::PathBuf;
 use std::process;
-use stdbench::build::build_collection;
+use stdbench::build;
 use stdbench::config::Config;
-use stdbench::{Error, Stage};
+use stdbench::error::Error;
 
 pub fn app<'a, 'b>() -> App<'a, 'b> {
     App::new("PISA standard benchmark for regression tests.")
@@ -32,16 +32,16 @@ pub fn app<'a, 'b>() -> App<'a, 'b> {
         )
 }
 
-fn parse_config(args: Vec<String>) -> Result<stdbench::config::Config, Error> {
-    info!("Parsing config");
+fn parse_config(args: Vec<String>) -> Result<Config, Error> {
     let matches = app().get_matches_from(args);
+    info!("Parsing config");
     let config_file = matches
         .value_of("config-file")
-        .expect("failed to read required argument");
+        .ok_or("failed to read required argument")?;
     let mut config = Config::from_file(PathBuf::from(config_file))?;
     if let Some(stages) = matches.values_of("suppress") {
         for name in stages {
-            if let Some(stage) = Stage::from_name(name) {
+            if let Ok(stage) = name.parse() {
                 config.suppress_stage(stage);
             } else {
                 warn!("Requested suppression of stage `{}` that is invalid", name);
@@ -60,8 +60,7 @@ fn run() -> Result<(), Error> {
     info!("Executor ready");
 
     for collection in &config.collections {
-        info!("Processing collection: {}", collection.name);
-        build_collection(executor.as_ref(), collection, &config)?;
+        build::collection(executor.as_ref(), collection, &config)?;
     }
     Ok(())
 }
@@ -78,6 +77,7 @@ fn main() {
 mod test {
     extern crate tempdir;
 
+    use super::stdbench::Stage;
     use super::*;
     use std::fs;
     use tempdir::TempDir;

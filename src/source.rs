@@ -1,13 +1,22 @@
+//! Objects and functions dealing with retrieving and preparing PISA executables.
+
 extern crate boolinator;
 extern crate downcast_rs;
+extern crate experiment;
+extern crate failure;
 
 use super::config::*;
+use super::error::Error;
 use super::executor::*;
-use super::*;
+use super::{execute, printed, Stage};
 use boolinator::Boolinator;
-use downcast_rs::Downcast;
+use downcast_rs::{impl_downcast, Downcast};
+use experiment::process::Process;
+use failure::ResultExt;
 use log::warn;
+use std::convert::TryFrom;
 use std::fmt::Debug;
+use std::fs::create_dir_all;
 use std::path::{Path, PathBuf};
 use yaml_rust::Yaml;
 
@@ -55,25 +64,22 @@ impl_downcast!(PisaSource);
 impl PisaSource {
     fn parse_git_source(yaml: &Yaml) -> Result<GitSource, Error> {
         match (yaml["url"].as_str(), yaml["branch"].as_str()) {
-            (None, _) => fail!("missing source.url"),
-            (_, None) => fail!("missing source.branch"),
-            (Some(url), Some(branch)) => Ok(GitSource {
-                url: String::from(url),
-                branch: String::from(branch),
-            }),
+            (None, _) => Err("missing source.url".into()),
+            (_, None) => Err("missing source.branch".into()),
+            (Some(url), Some(branch)) => Ok(GitSource::new(url, branch)),
         }
     }
 
     fn parse_path_source(yaml: &Yaml) -> Result<CustomPathSource, Error> {
         match yaml["path"].as_str() {
-            None => fail!("missing source.path"),
-            Some(path) => Ok(CustomPathSource::new(path)),
+            None => Err("missing source.path".into()),
+            Some(path) => Ok(CustomPathSource::from(path)),
         }
     }
 
     fn parse_docker_source(yaml: &Yaml) -> Result<DockerSource, Error> {
         match yaml["tag"].as_str() {
-            None => fail!("missing source.tag"),
+            None => Err("missing source.tag".into()),
             Some(tag) => Ok(DockerSource {
                 tag: String::from(tag),
             }),
@@ -102,9 +108,9 @@ impl PisaSource {
                 "git" => Ok(Box::new(PisaSource::parse_git_source(&yaml)?)),
                 "path" => Ok(Box::new(PisaSource::parse_path_source(&yaml)?)),
                 "docker" => Ok(Box::new(PisaSource::parse_docker_source(&yaml)?)),
-                typ => fail!("unknown source type: {}", typ),
+                typ => Err(format!("unknown source type: {}", typ).into()),
             },
-            None => fail!("missing or corrupted source.type"),
+            None => Err("missing or corrupted source.type".into()),
         }
     }
 }
@@ -118,15 +124,18 @@ impl PisaSource {
 /// ```
 /// # extern crate stdbench;
 /// # use stdbench::source::*;
-/// let source = CustomPathSource::new("/home/user/pisa/build/bin");
+/// let source = CustomPathSource::from("/home/user/pisa/build/bin");
 /// ```
 #[derive(Debug, PartialEq, Clone)]
 pub struct CustomPathSource {
-    pub bin: PathBuf,
+    bin: PathBuf,
 }
-impl CustomPathSource {
-    pub fn new<P: AsRef<Path>>(bin: P) -> CustomPathSource {
-        CustomPathSource {
+impl<P> From<P> for CustomPathSource
+where
+    P: AsRef<Path>,
+{
+    fn from(bin: P) -> Self {
+        Self {
             bin: bin.as_ref().to_path_buf(),
         }
     }
@@ -138,18 +147,21 @@ impl PisaSource for CustomPathSource {
         } else {
             config.workdir.join(&self.bin)
         };
-        Ok(Box::new(CustomPathExecutor::new(bin)?))
+        Ok(Box::new(CustomPathExecutor::try_from(bin)?))
     }
 }
 
+/// Git-based source. The produced executor will (unless suppressed) clone, configure,
+/// and build the code.
 #[derive(Debug, PartialEq, Clone)]
 pub struct GitSource {
-    pub url: String,
-    pub branch: String,
+    url: String,
+    branch: String,
 }
 impl GitSource {
-    pub fn new(url: &str, branch: &str) -> GitSource {
-        GitSource {
+    /// Defines a git repository cloned from `url` on branch `branch`.
+    pub fn new(url: &str, branch: &str) -> Self {
+        Self {
             url: String::from(url),
             branch: String::from(branch),
         }
@@ -161,11 +173,13 @@ impl PisaSource for GitSource {
     }
 }
 
+/// **Unimplemented**: A Docker-based source.
 #[derive(Debug, PartialEq)]
 pub struct DockerSource {
     tag: String,
 }
 impl PisaSource for DockerSource {
+    #[cfg_attr(tarpaulin, skip)]
     fn executor(&self, _config: &Config) -> Result<Box<PisaExecutor>, Error> {
         unimplemented!();
     }
@@ -183,7 +197,7 @@ fn init_git(config: &Config, url: &str, branch: &str) -> Result<Box<PisaExecutor
         execute!(printed(clone).command(); "cloning failed");
     };
     let build_dir = dir.join("build");
-    create_dir_all(&build_dir).map_err(|e| Error(format!("{}", e)))?;
+    create_dir_all(&build_dir).context("Could not create build directory")?;
 
     if config.is_suppressed(Stage::Compile) {
         warn!("Compilation has been suppressed");
@@ -195,7 +209,7 @@ fn init_git(config: &Config, url: &str, branch: &str) -> Result<Box<PisaExecutor
         let build = process("cmake --build .");
         execute!(printed(build).command().current_dir(&build_dir); "build failed");
     }
-    let executor = CustomPathExecutor::new(build_dir.join("bin"))?;
+    let executor = CustomPathExecutor::try_from(build_dir.join("bin"))?;
     Ok(Box::new(executor))
 }
 
@@ -221,10 +235,10 @@ mod tests {
                 )
                 .unwrap()[0]
             ),
-            Ok(GitSource {
-                url: String::from("https://github.com/pisa-engine/pisa.git"),
-                branch: String::from("dev")
-            })
+            Ok(GitSource::new(
+                "https://github.com/pisa-engine/pisa.git",
+                "dev"
+            ))
         );
         assert_eq!(
             PisaSource::parse_git_source(
@@ -236,7 +250,7 @@ mod tests {
                 )
                 .unwrap()[0]
             ),
-            fail!("missing source.branch")
+            Err("missing source.branch".into())
         );
         assert_eq!(
             PisaSource::parse_git_source(
@@ -247,7 +261,7 @@ mod tests {
                 )
                 .unwrap()[0]
             ),
-            fail!("missing source.url")
+            Err("missing source.url".into())
         );
     }
 
@@ -277,7 +291,7 @@ mod tests {
                 )
                 .unwrap()[0]
             ),
-            fail!("missing source.tag")
+            Err("missing source.tag".into())
         );
     }
 
@@ -327,7 +341,7 @@ mod tests {
                 .unwrap()[0]
             )
             .err(),
-            Some(Error::new("missing or corrupted source.type"))
+            Some(Error::from("missing or corrupted source.type"))
         );
         assert_eq!(
             PisaSource::parse(
@@ -339,7 +353,7 @@ mod tests {
                 .unwrap()[0]
             )
             .err(),
-            Some(Error::new("unknown source type: foo"))
+            Some(Error::from("unknown source type: foo"))
         );
         assert_eq!(
             PisaSource::parse(
@@ -353,7 +367,7 @@ mod tests {
             )
             .unwrap()
             .downcast_ref::<CustomPathSource>(),
-            Some(&CustomPathSource::new("pisa/build/bin"))
+            Some(&CustomPathSource::from("pisa/build/bin"))
         );
         assert_eq!(
             PisaSource::parse_path_source(
@@ -365,7 +379,7 @@ mod tests {
                 .unwrap()[0]
             )
             .err(),
-            Some(Error::new("missing source.path"))
+            Some(Error::from("missing source.path"))
         );
         assert_eq!(
             PisaSource::parse_path_source(
@@ -378,7 +392,7 @@ mod tests {
                 .unwrap()[0]
             )
             .err(),
-            Some(Error::new("missing source.path"))
+            Some(Error::from("missing source.path"))
         );
     }
 
@@ -388,7 +402,7 @@ mod tests {
         let bin = tmp.path().join("bin");
         std::fs::create_dir(&bin).unwrap();
         assert_eq!(
-            Config::new(tmp.path(), Box::new(CustomPathSource::new("bin")))
+            Config::new(tmp.path(), Box::new(CustomPathSource::from("bin")))
                 .executor()
                 .unwrap()
                 .downcast_ref::<CustomPathExecutor>()
@@ -400,12 +414,12 @@ mod tests {
 
     #[test]
     fn test_custom_path_source_fail() {
-        let source = CustomPathSource::new("/nonexistent-path");
+        let source = CustomPathSource::from("/nonexistent-path");
         let config = Config::new("workdir", Box::new(source));
         let executor = config.executor().err();
         assert_eq!(
             executor,
-            Some(Error::new(
+            Some(Error::from(
                 "Failed to construct executor: not a directory: /nonexistent-path"
             ))
         );

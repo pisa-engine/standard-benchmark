@@ -1,28 +1,34 @@
+//! Anything that has to do with building either forward or inverted index,
+//! including parsing and compressing.
+
 extern crate boolinator;
 extern crate experiment;
+extern crate failure;
 extern crate glob;
 extern crate log;
 
 use super::config::*;
+use super::error::Error;
 use super::executor::*;
 use super::*;
 use boolinator::Boolinator;
 use experiment::pipeline;
 use experiment::process::*;
+use failure::format_err;
 use glob::glob;
 use log::{info, warn};
 
 fn parse_wapo_command(
     executor: &PisaExecutor,
-    collection: &CollectionConfig,
+    collection: &Collection,
 ) -> Result<ProcessPipeline, Error> {
     let input_path = collection.collection_dir.join("data/*.jl");
     let input = input_path.to_str().unwrap();
     let input_files: Vec<_> = glob(input).unwrap().filter_map(Result::ok).collect();
-    (!input_files.is_empty()).ok_or(Error(format!(
+    (!input_files.is_empty()).ok_or(format_err!(
         "could not resolve any files for pattern: {}",
         input
-    )))?;
+    ))?;
     Ok(pipeline!(
         Process::new("cat", &input_files),
         executor.command(
@@ -45,7 +51,7 @@ fn parse_wapo_command(
 
 fn parse_command(
     executor: &PisaExecutor,
-    collection: &CollectionConfig,
+    collection: &Collection,
 ) -> Result<ProcessPipeline, Error> {
     match collection.name.as_ref() {
         "wapo" => parse_wapo_command(executor, collection),
@@ -53,9 +59,20 @@ fn parse_command(
     }
 }
 
-pub fn build_collection(
+/// Builds a requeested collection, using a given executor.
+///
+/// **Note**: Some steps might be ignored if the `config` struct
+/// has been instructed to suppress some stages.
+/// ```
+/// # extern crate stdbench;
+/// # use stdbench::Stage;
+/// let stage = Stage::BuildIndex; // suppresses the entire function
+/// let stage = Stage::ParseCollection; // suppresses building forward index
+/// let stage = Stage::Invert; // as ParseCollection + suppresses building inverted index
+/// ```
+pub fn collection(
     executor: &PisaExecutor,
-    collection: &CollectionConfig,
+    collection: &Collection,
     config: &Config,
 ) -> Result<(), Error> {
     info!("Processing collection: {}", collection.name);
@@ -131,10 +148,9 @@ mod test {
         output_paths.insert("invert", invert_path);
         programs.insert("invert", invert_prog);
 
-        let mut config = Config::new(tmp.path(), Box::new(CustomPathSource::new(tmp.path())));
-        config.collections.push(CollectionConfig {
+        let mut config = Config::new(tmp.path(), Box::new(CustomPathSource::from(tmp.path())));
+        config.collections.push(Collection {
             name: String::from("wapo"),
-            description: None,
             collection_dir: tmp.path().join("coll"),
             forward_index: PathBuf::from("fwd/wapo"),
             inverted_index: PathBuf::from("inv/wapo"),
@@ -149,10 +165,10 @@ mod test {
     }
 
     #[test]
-    fn test_build_collection() {
+    fn test_collection() {
         let tmp = TempDir::new("build").unwrap();
         let (config, executor, programs, outputs) = set_up(&tmp);
-        build_collection(executor.as_ref(), &config.collections[0], &config).unwrap();
+        collection(executor.as_ref(), &config.collections[0], &config).unwrap();
         assert_eq!(
             std::fs::read_to_string(outputs.get("parse").unwrap()).unwrap(),
             format!(
@@ -179,9 +195,8 @@ mod test {
         let data_file = data_dir.join("TREC_Washington_Post_collection.v2.jl");
         File::create(&data_file).unwrap();
         let executor = SystemPathExecutor::new();
-        let cconf = CollectionConfig {
+        let cconf = Collection {
             name: String::from("wapo"),
-            description: None,
             collection_dir: tmp.path().to_path_buf(),
             forward_index: PathBuf::from("fwd"),
             inverted_index: PathBuf::from("inv"),
