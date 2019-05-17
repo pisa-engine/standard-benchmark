@@ -22,6 +22,7 @@ before_cache: |
   if [[ "$TRAVIS_RUST_VERSION" == nightly ]]; then
     RUSTFLAGS="--cfg procmacro2_semver_exempt" cargo install cargo-tarpaulin -f
     cargo install cargo-travis
+    rustup component add clippy
   fi
 
 script:
