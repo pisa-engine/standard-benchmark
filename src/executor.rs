@@ -5,9 +5,12 @@ extern crate downcast_rs;
 extern crate experiment;
 extern crate failure;
 
+use super::config::Encoding;
 use super::*;
+use boolinator::Boolinator;
 use downcast_rs::Downcast;
 use experiment::process::Process;
+use failure::ResultExt;
 use std::convert::TryFrom;
 use std::fmt::Debug;
 use std::path::{Path, PathBuf};
@@ -18,6 +21,96 @@ pub trait PisaExecutor: Debug + Downcast {
     fn command(&self, program: &str, args: &[&str]) -> Process;
 }
 impl_downcast!(PisaExecutor);
+#[cfg_attr(tarpaulin, skip)] // Due to so many false positives
+impl PisaExecutor {
+    /// Runs `invert` command.
+    pub fn invert<P1, P2>(
+        &self,
+        forward_index: P1,
+        inverted_index: P2,
+        term_count: usize,
+    ) -> Result<(), Error>
+    where
+        P1: AsRef<Path>,
+        P2: AsRef<Path>,
+    {
+        let fwd = forward_index
+            .as_ref()
+            .to_str()
+            .ok_or("Failed to parse forward index path")?;
+        let inv = inverted_index
+            .as_ref()
+            .to_str()
+            .ok_or("Failed to parse inverted index path")?;
+        let cmd = self.command(
+            "invert",
+            &[
+                "-i",
+                fwd,
+                "-o",
+                inv,
+                "--term-count",
+                &term_count.to_string(),
+            ],
+        );
+        printed(cmd)
+            .execute()
+            .context("Failed to execute: invert")?
+            .success()
+            .ok_or("Failed to invert index")?;
+        Ok(())
+    }
+
+    /// Runs `create_freq_index` command.
+    pub fn compress<P>(&self, inverted_index: P, encoding: &Encoding) -> Result<(), Error>
+    where
+        P: AsRef<Path>,
+    {
+        let inv = inverted_index
+            .as_ref()
+            .to_str()
+            .ok_or("Failed to parse inverted index path")?;
+        let cmd = self.command(
+            "create_freq_index",
+            &[
+                "-t",
+                encoding.as_ref(),
+                "-c",
+                inv,
+                "-o",
+                &format!("{}.{}", inv, encoding),
+                "--check",
+            ],
+        );
+        printed(cmd)
+            .execute()
+            .context("Failed to execute: create_freq_index")?
+            .success()
+            .ok_or("Failed to compress index")?;
+        Ok(())
+    }
+
+    /// Runs `create_freq_index` command.
+    pub fn create_wand_data<P>(&self, inverted_index: P) -> Result<(), Error>
+    where
+        P: AsRef<Path>,
+    {
+        let inv = inverted_index
+            .as_ref()
+            .to_str()
+            .ok_or("Failed to parse inverted index path")?;
+        let cmd = self.command(
+            "create_wand_data",
+            &["-c", inv, "-o", &format!("{}.wand", inv)],
+        );
+        printed(cmd)
+            .execute()
+            .context("Failed to execute create_wand_data")?
+            .success()
+            .ok_or("Failed to create WAND data")?;
+        Ok(())
+    }
+}
 
 /// This executor simply executes the commands as passed,
 /// as if they were on the system path.
@@ -85,6 +178,7 @@ mod tests {
     extern crate downcast_rs;
     extern crate tempdir;
 
+    use super::super::tests::{mock_set_up, MockSetup};
     use super::config::*;
     use super::source::*;
     use super::*;
@@ -93,6 +187,66 @@ mod tests {
     use std::os::unix::fs::PermissionsExt;
     use std::process::Command;
     use tempdir::TempDir;
+
+    fn test_exec<F>(prog: &str, err: &'static str, exec: F)
+    where
+        F: Fn(&MockSetup) -> Result<(), Error>,
+    {
+        {
+            let tmp = TempDir::new("executor").unwrap();
+            let setup: MockSetup = mock_set_up(&tmp);
+            assert!(exec(&setup).is_ok());
+        }
+        {
+            let tmp = TempDir::new("executor").unwrap();
+            let setup: MockSetup = mock_set_up(&tmp);
+            std::fs::write(setup.programs.get(prog).unwrap(), "#!/bin/bash\nexit 1").unwrap();
+            assert_eq!(exec(&setup), Err(Error::from(err)));
+        }
+        {
+            let tmp = TempDir::new("executor").unwrap();
+            let setup: MockSetup = mock_set_up(&tmp);
+            std::fs::remove_file(setup.programs.get(prog).unwrap()).unwrap();
+            assert!(exec(&setup).is_err());
+        }
+    }
+
+    #[test]
+    #[cfg_attr(target_family, unix)]
+    fn test_invert() {
+        test_exec("invert", "Failed to invert index", |setup: &MockSetup| {
+            setup.executor.invert(
+                &setup.config.collections[0].forward_index,
+                &setup.config.collections[0].inverted_index,
+                setup.term_count,
+            )
+        });
+    }
+
+    #[test]
+    #[cfg_attr(target_family, unix)]
+    fn test_compress() {
+        test_exec(
+            "compress",
+            "Failed to compress index",
+            |setup: &MockSetup| {
+                setup.executor.compress(
+                    &setup.config.collections[0].forward_index,
+                    &Encoding::from("block_simdbp"),
+                )
+            },
+        );
+    }
+
+    #[test]
+    #[cfg_attr(target_family, unix)]
+    fn test_create_wand_data() {
+        test_exec("wand", "Failed to create WAND data", |setup: &MockSetup| {
+            setup
+                .executor
+                .create_wand_data(&setup.config.collections[0].inverted_index)
+        });
+    }
 
     #[test]
     #[cfg_attr(target_family, unix)]

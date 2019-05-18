@@ -10,7 +10,7 @@ use super::*;
 use failure::ResultExt;
 use log::error;
 use std::collections::HashSet;
-use std::convert::From;
+use std::convert::{From, Into};
 use std::fs::read_to_string;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -31,6 +31,16 @@ impl FromStr for Encoding {
 impl From<&str> for Encoding {
     fn from(name: &str) -> Self {
         Self(name.to_string())
+    }
+}
+impl AsRef<str> for Encoding {
+    fn as_ref(&self) -> &str {
+        self.0.as_str()
+    }
+}
+impl std::fmt::Display for Encoding {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.as_ref())
     }
 }
 
@@ -107,6 +117,26 @@ impl Collection {
         }
     }
 
+    /// Returns a string representing forward index path.
+    #[cfg_attr(tarpaulin, skip)] // Due to so many false positives
+    pub fn fwd(&self) -> Result<&str, Error> {
+        let fwd = self
+            .forward_index
+            .to_str()
+            .ok_or("Failed to parse forward index path")?;
+        Ok(fwd)
+    }
+
+    /// Returns a string representing inverted index path.
+    #[cfg_attr(tarpaulin, skip)] // Due to so many false positives
+    pub fn inv(&self) -> Result<&str, Error> {
+        let inv = self
+            .inverted_index
+            .to_str()
+            .ok_or("Failed to parse inverted index path")?;
+        Ok(inv)
+    }
+
     fn parse_encodings(yaml: &Yaml) -> Result<Vec<Encoding>, Error> {
         let encodings = yaml.as_vec().ok_or("missing or corrupted encoding list")?;
         let encodings: Vec<Encoding> = encodings
@@ -175,7 +205,7 @@ impl Config {
     /// // config.suppress_stage(Stage::Compile);
     /// let executor = config.executor();
     /// ```
-    pub fn executor(&self) -> Result<Box<PisaExecutor>, super::error::Error> {
+    pub fn executor(&self) -> Result<Box<PisaExecutor>, Error> {
         self.source.executor(&self)
     }
 

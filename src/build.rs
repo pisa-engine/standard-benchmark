@@ -14,7 +14,7 @@ use super::*;
 use boolinator::Boolinator;
 use experiment::pipeline;
 use experiment::process::*;
-use failure::format_err;
+use failure::{format_err, ResultExt};
 use glob::glob;
 use log::{info, warn};
 
@@ -59,6 +59,27 @@ fn parse_command(
     }
 }
 
+/// Retrieves the term count of an already built collection.
+///
+/// Internally, it counts lines of the terms file of the forward index.
+/// If it's not yet built, this function will return an error.
+fn term_count(collection: &Collection) -> Result<usize, Error> {
+    let output = Process::new("wc", &["-l", &format!("{}.terms", collection.fwd()?)])
+        .command()
+        .output()
+        .context("Failed to count terms")?;
+    output.status.success().ok_or("Failed to count terms")?;
+    let term_count_str = String::from_utf8(output.stdout).context("Failed to parse UTF-8")?;
+    let parsing_error = "could not parse output of `wc -l`";
+    let count = term_count_str[..]
+        .split_whitespace()
+        .find(|s| !s.is_empty())
+        .expect(parsing_error)
+        .parse::<usize>()
+        .expect(parsing_error);
+    Ok(count)
+}
+
 /// Builds a requeested collection, using a given executor.
 ///
 /// **Note**: Some steps might be ignored if the `config` struct
@@ -91,23 +112,21 @@ pub fn collection(
             debug!("\n{}", pipeline.display(Verbosity::Verbose));
             execute!(pipeline.pipe(); "Failed to parse");
         }
-        if config.is_suppressed(Stage::Invert) {
+        if config.is_suppressed(Stage::Invert) || config.is_suppressed(Stage::ParseCollection) {
             warn!("[{}] [build] [invert] Suppressed", name);
         } else {
             info!("[{}] [build] [invert] Inverting index", name);
-            let term_count = 1;
-            execute!(executor.command("invert", &[
-                "-i",
-                collection.forward_index.to_str().unwrap(),
-                "-o",
-                collection.inverted_index.to_str().unwrap(),
-                "--term-count",
-                &term_count.to_string()
-            ]).command(); "Failed to invert");
+            executor.invert(
+                &collection.forward_index,
+                &collection.inverted_index,
+                term_count(&collection)?,
+            )?;
         }
-        //unimplemented!();
-        //info!("[{}] [build] [compress] Compressing index", name);
-        //unimplemented!();
+        info!("[{}] [build] [compress] Compressing index", name);
+        for encoding in &collection.encodings {
+            executor.compress(&collection.inverted_index, encoding)?;
+        }
+        executor.create_wand_data(&collection.inverted_index)?;
     }
     Ok(())
 }
@@ -116,73 +135,68 @@ pub fn collection(
 mod test {
     extern crate tempdir;
 
-    use super::source::*;
-    use super::tests::make_echo;
+    use super::super::tests::{mock_set_up, MockSetup};
     use super::*;
-    use std::collections::HashMap;
     use std::fs::{create_dir, File};
     use std::path::PathBuf;
     use tempdir::TempDir;
 
-    fn set_up(
-        tmp: &TempDir,
-    ) -> (
-        Config,
-        Box<PisaExecutor>,
-        HashMap<&'static str, PathBuf>,
-        HashMap<&'static str, PathBuf>,
-    ) {
-        stderrlog::new().verbosity(100).init().unwrap();
-        let mut output_paths: HashMap<&'static str, PathBuf> = HashMap::new();
-        let mut programs: HashMap<&'static str, PathBuf> = HashMap::new();
-
-        let parse_path = tmp.path().join("parse_collection.out");
-        let parse_prog = tmp.path().join("parse_collection");
-        make_echo(&parse_prog, &parse_path).unwrap();
-        output_paths.insert("parse", parse_path);
-        programs.insert("parse", parse_prog);
-
-        let invert_path = tmp.path().join("invert.out");
-        let invert_prog = tmp.path().join("invert");
-        make_echo(&invert_prog, &invert_path).unwrap();
-        output_paths.insert("invert", invert_path);
-        programs.insert("invert", invert_prog);
-
-        let mut config = Config::new(tmp.path(), Box::new(CustomPathSource::from(tmp.path())));
-        config.collections.push(Collection {
-            name: String::from("wapo"),
-            collection_dir: tmp.path().join("coll"),
-            forward_index: PathBuf::from("fwd/wapo"),
-            inverted_index: PathBuf::from("inv/wapo"),
-            encodings: vec![],
-        });
-
-        let data_dir = tmp.path().join("coll").join("data");
-        create_dir_all(&data_dir).unwrap();
-        std::fs::File::create(data_dir.join("f.jl")).unwrap();
-        let executor = config.executor().unwrap();
-        (config, executor, programs, output_paths)
+    #[test]
+    #[cfg_attr(target_family, unix)]
+    fn test_term_count() {
+        {
+            let tmp = TempDir::new("build").unwrap();
+            let setup = mock_set_up(&tmp);
+            assert_eq!(term_count(&setup.config.collections[0]), Ok(3));
+        }
+        {
+            let tmp = TempDir::new("build").unwrap();
+            let setup = mock_set_up(&tmp);
+            std::fs::remove_file(tmp.path().join("fwd.terms")).unwrap();
+            assert_eq!(
+                term_count(&setup.config.collections[0]).err(),
+                Some(Error::from("Failed to count terms"))
+            );
+        }
     }
 
     #[test]
     fn test_collection() {
         let tmp = TempDir::new("build").unwrap();
-        let (config, executor, programs, outputs) = set_up(&tmp);
+        let MockSetup {
+            config,
+            executor,
+            programs,
+            outputs,
+            term_count,
+        } = mock_set_up(&tmp);
         collection(executor.as_ref(), &config.collections[0], &config).unwrap();
         assert_eq!(
             std::fs::read_to_string(outputs.get("parse").unwrap()).unwrap(),
             format!(
-                "{} -o fwd/wapo \
+                "{} -o {} \
                  -f wapo --stemmer porter2 --content-parser html --batch-size 1000",
-                programs.get("parse").unwrap().display()
+                programs.get("parse").unwrap().display(),
+                tmp.path().join("fwd").display()
             )
         );
         assert_eq!(
             std::fs::read_to_string(outputs.get("invert").unwrap()).unwrap(),
             format!(
-                "{} -i fwd/wapo -o inv/wapo --term-count {}",
+                "{} -i {} -o {} --term-count {}",
                 programs.get("invert").unwrap().display(),
-                1
+                tmp.path().join("fwd").display(),
+                tmp.path().join("inv").display(),
+                term_count
+            )
+        );
+        assert_eq!(
+            std::fs::read_to_string(outputs.get("compress").unwrap()).unwrap(),
+            format!(
+                "{0} -t block_simdbp -c {1} -o {1}.block_simdbp --check\
+                 {0} -t block_qmx -c {1} -o {1}.block_qmx --check",
+                programs.get("compress").unwrap().display(),
+                tmp.path().join("inv").display(),
             )
         );
     }
