@@ -1,1 +1,1 @@
-initSidebarItems({"struct":[["CollectionConfig","Configuration of a tested collection."],["Config","Stores a full config for benchmark run."]]});
+initSidebarItems({"struct":[["Collection","Configuration of a tested collection."],["Config","Stores a full config for benchmark run."],["Encoding","Index encoding type."]]});

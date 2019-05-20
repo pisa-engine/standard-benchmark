@@ -1,0 +1,1 @@
+initSidebarItems({"fn":[["collection","Builds a requeested collection, using a given executor."]]});

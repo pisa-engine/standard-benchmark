@@ -1,0 +1,1 @@
+initSidebarItems({"struct":[["CustomPathSource","Defines a path where the PISA executables already exist."],["DockerSource","Unimplemented: A Docker-based source."],["GitSource","Git-based source. The produced executor will (unless suppressed) clone, configure, and build the code."]],"trait":[["PisaSource","Defines how to acquire PISA programs for later execution."]]});

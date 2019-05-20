@@ -1,0 +1,1 @@
+initSidebarItems({"struct":[["Error","This error type is extensively used throughout the codebase. Any external errors are converted to this one using `convert()` method from `failure` crate. The context is a string for simplicity's sake, since the only thing we care about is printing the error to the user."]]});
