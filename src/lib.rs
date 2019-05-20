@@ -1,71 +1,178 @@
-#[macro_use]
-#[allow(unused_imports)]
-extern crate json;
-extern crate experiment;
+#![warn(
+    missing_docs,
+    trivial_casts,
+    trivial_numeric_casts,
+    unused_import_braces,
+    unused_qualifications
+)]
+#![deny(clippy::all, clippy::pedantic)]
+#![allow(clippy::module_name_repetitions)]
 
+//! This library contains all necessary tools to run a PISA benchmark
+//! on a collection of a significant size.
+
+extern crate downcast_rs;
+extern crate experiment;
+extern crate failure;
+extern crate json;
+
+use downcast_rs::impl_downcast;
+use error::Error;
 use experiment::process::Process;
 use experiment::Verbosity;
-use log::{error, info};
-use std::fmt::Display;
+use log::debug;
+use std::fmt;
 use std::fs::create_dir_all;
-use std::{fmt, process};
+use std::path::Path;
+use std::str::FromStr;
 
+pub mod build;
 pub mod config;
+pub mod error;
 pub mod executor;
-
-#[derive(Debug, PartialEq)]
-pub struct Error(pub String);
-impl Error {
-    pub fn new(msg: &str) -> Error {
-        Error(String::from(msg))
-    }
-}
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-impl From<std::io::Error> for Error {
-    fn from(e: std::io::Error) -> Self {
-        Error(format!("{:?}", e))
-    }
-}
+pub mod source;
 
 /// Available stages of the experiment.
-#[derive(Debug, PartialEq, Eq, Hash)]
+/// # Examples
+///
+/// All names are lowercase:
+///
+/// ```
+/// # extern crate stdbench;
+/// # use::stdbench::*;
+/// assert_eq!("compile".parse(), Ok(Stage::Compile));
+/// assert_eq!("build".parse(), Ok(Stage::BuildIndex));
+/// assert_eq!("parse".parse(), Ok(Stage::ParseCollection));
+/// assert_eq!("invert".parse(), Ok(Stage::Invert));
+/// assert_eq!("?".parse::<Stage>(), Err("invalid stage: ?".into()));
+/// assert_eq!("compile", format!("{}", Stage::Compile));
+/// assert_eq!("build", format!("{}", Stage::BuildIndex));
+/// assert_eq!("parse", format!("{}", Stage::ParseCollection));
+/// assert_eq!("invert", format!("{}", Stage::Invert));
+/// ```
+#[cfg_attr(tarpaulin, skip)]
+#[derive(Debug, PartialEq, Eq, Hash, Copy, Clone)]
 pub enum Stage {
+    /// Compilation stage; includes things such as: fetching code, configuring,
+    /// and actual compilation of the source code. The exact meaning depends on
+    /// the type of the source being processed.
     Compile,
+    /// Includes building forward/inverted index and index compressing.
     BuildIndex,
+    /// A subset of `BuildIndex`; means: build an inverted index but assume the
+    /// forward index has been already built (e.g., in a previous run).
     ParseCollection,
+    /// Inverting stage; mean: compress an inverted index but do not invert forward
+    /// index, assuming it has been done already.
+    /// **Note**: it implicitly suppresses parsing as in `ParseCollection`
+    Invert,
 }
-impl Stage {
-    pub fn from_name(name: &str) -> Option<Stage> {
+impl FromStr for Stage {
+    type Err = Error;
+
+    /// Parse string and return a stage enum if string correct.
+    fn from_str(name: &str) -> Result<Self, Error> {
         match name.to_lowercase().as_ref() {
-            "compile" => Some(Stage::Compile),
-            "build" => Some(Stage::BuildIndex),
-            "parse" => Some(Stage::ParseCollection),
-            _ => None,
+            "compile" => Ok(Stage::Compile),
+            "build" => Ok(Stage::BuildIndex),
+            "parse" => Ok(Stage::ParseCollection),
+            "invert" => Ok(Stage::Invert),
+            _ => Err(format!("invalid stage: {}", &name).into()),
         }
     }
 }
 impl fmt::Display for Stage {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:?}", self)
+        write!(
+            f,
+            "{}",
+            match self {
+                Stage::Compile => "compile",
+                Stage::BuildIndex => "build",
+                Stage::ParseCollection => "parse",
+                Stage::Invert => "invert",
+            }
+        )
     }
 }
 
 /// Prints the passed command and returns it back.
+#[cfg_attr(tarpaulin, skip)]
 pub fn printed(cmd: Process) -> Process {
-    info!("=> {}", cmd.display(Verbosity::Verbose));
-    // TODO: why is info not working?
-    println!("EXEC - {}", cmd.display(Verbosity::Verbose));
+    debug!("[EXEC] {}", cmd.display(Verbosity::Verbose));
     cmd
 }
 
-/// Prints out the error with the logger and exits the program.
-pub fn exit_gracefully<E: Display, R>(e: E) -> R {
-    error!("{}", e);
-    // TODO: why is error not working?
-    println!("ERROR - {}", e);
-    process::exit(1);
+/// If the parent directory of `path` does not exist, create it.
+///
+/// # Examples
+///
+/// ```
+/// # extern crate stdbench;
+/// # extern crate tempdir;
+/// # use stdbench::*;
+/// # use stdbench::error::*;
+/// # use std::path::Path;
+/// # use tempdir::TempDir;
+/// assert_eq!(
+///     ensure_parent_exists(Path::new("/")),
+///     Err(Error::from("cannot access parent of path: /"))
+/// );
+///
+/// let tmp = TempDir::new("parent_exists").unwrap();
+/// let parent = tmp.path().join("parent");
+/// let child = parent.join("child");
+/// assert!(ensure_parent_exists(child.as_path()).is_ok());
+/// assert!(parent.exists());
+/// ```
+pub fn ensure_parent_exists(path: &Path) -> Result<(), Error> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| format!("cannot access parent of path: {}", path.display()))?;
+    create_dir_all(parent)?;
+    Ok(())
 }
+
+/// Executes a `$cmd`, checks for results, and returns an error with `$errmsg` message.
+/// It is designed to be similar to `?` operator, removing bulky boilerplate from
+/// functions that execute many consecutive commands.
+///
+/// This macro will return error in one of the two cases:
+/// - command execution failed,
+/// - command returned an exit status equivalent to an error.
+///
+/// This macro is intended to be used in simple cases when we do not want to capture
+/// the output or learn more about exit status, since the only feedback we get
+/// is the error message passed at the call site.
+///
+/// # Example
+///
+/// ```
+/// # #[macro_use]
+/// # extern crate stdbench;
+/// extern crate boolinator;
+/// # use stdbench::error::Error;
+/// # use std::process::Command;
+/// use boolinator::Boolinator;
+/// # fn main() {
+/// fn f() -> Result<(), Error> {
+///     execute!(Command::new("ls"); "couldn't ls");
+///     execute!(Command::new("cat").args(&["some_file"]); "couldn't cat");
+///     Ok(())
+/// }
+///
+/// match f() {
+///     Ok(()) => println!(),
+///     Err(err) => println!("Here's what went wrong"),
+/// }
+/// # }
+/// ```
+#[macro_export]
+macro_rules! execute {
+    ($cmd:expr; $errmsg:expr) => {{
+        $cmd.status()?.success().ok_or(Error::from($errmsg))?;
+    }};
+}
+
+#[cfg(test)]
+mod tests;
