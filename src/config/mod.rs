@@ -3,18 +3,37 @@
 
 extern crate yaml_rust;
 
-use super::error::Error;
-use super::executor::*;
-use super::source::*;
-use super::*;
+use crate::error::Error;
+use crate::executor::*;
+use crate::run::Run;
+use crate::source::*;
+use crate::*;
 use failure::ResultExt;
 use log::error;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::convert::{From, Into};
 use std::fs::read_to_string;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 use std::str::FromStr;
 use yaml_rust::{Yaml, YamlLoader};
+
+/// Mapping from collection name to a (reference counted pointer to) collection object.
+pub type CollectionMap = HashMap<String, Rc<Collection>>;
+
+/// Extension for `yaml_rust::Yaml` object providing useful methods.
+pub trait YamlExt {
+    /// Returns string slice to the value of a field if it is a string,
+    /// or an error otherwise.
+    fn require_string(&self, field: &str) -> Result<&str, Error>;
+}
+impl YamlExt for Yaml {
+    fn require_string(&self, field: &str) -> Result<&str, Error> {
+        self[field]
+            .as_str()
+            .ok_or_else(|| Error::from(format!("field {} missing or not string", field)))
+    }
+}
 
 /// Index encoding type.
 ///
@@ -73,7 +92,6 @@ impl Collection {
     /// # use stdbench::config;
     /// # use stdbench::config::{Collection, Encoding};
     /// # use std::path::PathBuf;
-    /// //# include!("src/doctest_helper.rs");
     /// let yaml = yaml_rust::YamlLoader::load_from_str("
     /// name: wapo
     /// collection_dir: /path/to/wapo
@@ -109,8 +127,14 @@ impl Collection {
                 Ok(Self {
                     name: name.to_string(),
                     collection_dir: PathBuf::from(collection_dir),
-                    forward_index: PathBuf::from(fwd.unwrap_or("fwd/wapo")),
-                    inverted_index: PathBuf::from(inv.unwrap_or("inv/wapo")),
+                    forward_index: PathBuf::from(
+                        fwd.map(String::from)
+                            .unwrap_or_else(|| format!("fwd/{}", &name)),
+                    ),
+                    inverted_index: PathBuf::from(
+                        inv.map(String::from)
+                            .unwrap_or_else(|| format!("inv/{}", &name)),
+                    ),
                     encodings,
                 })
             }
@@ -168,7 +192,9 @@ pub struct Config {
     pub source: Box<PisaSource>,
     suppressed: HashSet<Stage>,
     /// Configuration of all collections to be tested.
-    pub collections: Vec<Collection>,
+    pub collections: Vec<Rc<Collection>>,
+    /// Experimental runs
+    pub runs: Vec<Run>,
 }
 impl Config {
     /// Constructs a new configuration with `workdir` and a source.
@@ -182,6 +208,7 @@ impl Config {
             source,
             suppressed: HashSet::new(),
             collections: Vec::new(),
+            runs: Vec::new(),
         }
     }
 
@@ -234,29 +261,50 @@ impl Config {
                 (Some(workdir), source) => {
                     let source = PisaSource::parse(source)?;
                     let mut conf = Self::new(PathBuf::from(workdir), source);
-                    match &yaml[0]["collections"] {
-                        Yaml::Array(collections) => {
-                            for collection in collections {
-                                match conf.parse_collection(&collection) {
-                                    Ok(coll_config) => {
-                                        conf.collections.push(coll_config);
-                                    }
-                                    Err(err) => {
-                                        error!("Unable to parse collection config: {}", err)
-                                    }
-                                }
-                            }
-                            if conf.collections.is_empty() {
-                                Err("no correct collection configurations found".into())
-                            } else {
-                                Ok(conf)
-                            }
-                        }
-                        _ => Err("missing or corrupted collections config".into()),
-                    }
+                    let collections = conf.parse_collections(&yaml[0]["collections"])?;
+                    conf.parse_runs(&yaml[0]["runs"], &collections)?;
+                    Ok(conf)
                 }
             },
             Err(_) => Err("could not parse YAML file".into()),
+        }
+    }
+
+    fn parse_runs(&mut self, runs: &Yaml, collections: &CollectionMap) -> Result<(), Error> {
+        match runs {
+            Yaml::Array(runs) => {
+                for run in runs {
+                    self.runs.push(Run::parse(&run, collections)?);
+                }
+                Ok(())
+            }
+
+            _ => Ok(()),
+        }
+    }
+
+    fn parse_collections(&mut self, collections: &Yaml) -> Result<CollectionMap, Error> {
+        match collections {
+            Yaml::Array(collections) => {
+                let mut collection_map: CollectionMap = HashMap::new();
+                for collection in collections {
+                    match self.parse_collection(&collection) {
+                        Ok(coll_config) => {
+                            let name = coll_config.name.clone();
+                            let collrc = Rc::new(coll_config);
+                            self.collections.push(Rc::clone(&collrc));
+                            collection_map.insert(name, collrc);
+                        }
+                        Err(err) => error!("Unable to parse collection config: {}", err),
+                    }
+                }
+                if self.collections.is_empty() {
+                    Err("no correct collection configurations found".into())
+                } else {
+                    Ok(collection_map)
+                }
+            }
+            _ => Err("missing or corrupted collections config".into()),
         }
     }
 

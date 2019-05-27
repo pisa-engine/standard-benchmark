@@ -121,8 +121,8 @@ collections:
         )
     );
     assert_eq!(
-        conf.collections[0],
-        Collection {
+        conf.collections[0].as_ref(),
+        &Collection {
             name: "wapo".to_string(),
             collection_dir: PathBuf::from("/collections/wapo"),
             forward_index: PathBuf::from("/tmp/fwd/wapo"),

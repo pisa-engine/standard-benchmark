@@ -50,7 +50,7 @@ fn test_invert() {
 #[cfg_attr(target_family, unix)]
 fn test_compress() {
     test_exec(
-        "compress",
+        "create_freq_index",
         "Failed to compress index",
         |setup: &MockSetup| {
             setup.executor.compress(
@@ -64,11 +64,15 @@ fn test_compress() {
 #[test]
 #[cfg_attr(target_family, unix)]
 fn test_create_wand_data() {
-    test_exec("wand", "Failed to create WAND data", |setup: &MockSetup| {
-        setup
-            .executor
-            .create_wand_data(&setup.config.collections[0].inverted_index)
-    });
+    test_exec(
+        "create_wand_data",
+        "Failed to create WAND data",
+        |setup: &MockSetup| {
+            setup
+                .executor
+                .create_wand_data(&setup.config.collections[0].inverted_index)
+        },
+    );
 }
 
 #[test]

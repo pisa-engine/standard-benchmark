@@ -37,11 +37,11 @@ fn test_collection() {
     } = mock_set_up(&tmp);
     collection(executor.as_ref(), &config.collections[0], &config).unwrap();
     assert_eq!(
-        std::fs::read_to_string(outputs.get("parse").unwrap()).unwrap(),
+        std::fs::read_to_string(outputs.get("parse_collection").unwrap()).unwrap(),
         format!(
             "{} -o {} \
              -f wapo --stemmer porter2 --content-parser html --batch-size 1000",
-            programs.get("parse").unwrap().display(),
+            programs.get("parse_collection").unwrap().display(),
             tmp.path().join("fwd").display()
         )
     );
@@ -56,12 +56,29 @@ fn test_collection() {
         )
     );
     assert_eq!(
-        std::fs::read_to_string(outputs.get("compress").unwrap()).unwrap(),
+        std::fs::read_to_string(outputs.get("create_freq_index").unwrap()).unwrap(),
         format!(
             "{0} -t block_simdbp -c {1} -o {1}.block_simdbp --check\
              {0} -t block_qmx -c {1} -o {1}.block_qmx --check",
-            programs.get("compress").unwrap().display(),
+            programs.get("create_freq_index").unwrap().display(),
             tmp.path().join("inv").display(),
+        )
+    );
+    assert_eq!(
+        std::fs::read_to_string(outputs.get("create_wand_data").unwrap()).unwrap(),
+        format!(
+            "{0} -c {1} -o {1}.wand",
+            programs.get("create_wand_data").unwrap().display(),
+            tmp.path().join("inv").display(),
+        )
+    );
+    assert_eq!(
+        std::fs::read_to_string(outputs.get("lexicon").unwrap()).unwrap(),
+        format!(
+            "{0} build {1}.terms {1}.termmap\
+             {0} build {1}.documents {1}.docmap",
+            programs.get("lexicon").unwrap().display(),
+            tmp.path().join("fwd").display(),
         )
     );
 }

@@ -111,6 +111,9 @@ pub fn collection(
             let pipeline = parse_command(&*executor, &collection)?;
             debug!("\n{}", pipeline.display(Verbosity::Verbose));
             execute!(pipeline.pipe(); "Failed to parse");
+            let fwd = collection.forward_index.display();
+            executor.build_lexicon(format!("{}.terms", fwd), format!("{}.termmap", fwd))?;
+            executor.build_lexicon(format!("{}.documents", fwd), format!("{}.docmap", fwd))?;
         }
         if config.is_suppressed(Stage::Invert) || config.is_suppressed(Stage::ParseCollection) {
             warn!("[{}] [build] [invert] Suppressed", name);

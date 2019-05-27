@@ -15,6 +15,7 @@ extern crate downcast_rs;
 extern crate experiment;
 extern crate failure;
 extern crate json;
+extern crate strum;
 
 use downcast_rs::impl_downcast;
 use error::Error;
@@ -24,12 +25,13 @@ use log::debug;
 use std::fmt;
 use std::fs::create_dir_all;
 use std::path::Path;
-use std::str::FromStr;
+use strum_macros::{Display, EnumIter, EnumString};
 
 pub mod build;
 pub mod config;
 pub mod error;
 pub mod executor;
+pub mod run;
 pub mod source;
 
 /// Available stages of the experiment.
@@ -44,56 +46,32 @@ pub mod source;
 /// assert_eq!("build".parse(), Ok(Stage::BuildIndex));
 /// assert_eq!("parse".parse(), Ok(Stage::ParseCollection));
 /// assert_eq!("invert".parse(), Ok(Stage::Invert));
-/// assert_eq!("?".parse::<Stage>(), Err("invalid stage: ?".into()));
+/// assert!("?".parse::<Stage>().is_err());
 /// assert_eq!("compile", format!("{}", Stage::Compile));
 /// assert_eq!("build", format!("{}", Stage::BuildIndex));
 /// assert_eq!("parse", format!("{}", Stage::ParseCollection));
 /// assert_eq!("invert", format!("{}", Stage::Invert));
 /// ```
 #[cfg_attr(tarpaulin, skip)]
-#[derive(Debug, PartialEq, Eq, Hash, Copy, Clone)]
+#[derive(Debug, PartialEq, Eq, Hash, Copy, Clone, EnumString, Display, EnumIter)]
 pub enum Stage {
     /// Compilation stage; includes things such as: fetching code, configuring,
     /// and actual compilation of the source code. The exact meaning depends on
     /// the type of the source being processed.
+    #[strum(serialize = "compile")]
     Compile,
     /// Includes building forward/inverted index and index compressing.
+    #[strum(serialize = "build")]
     BuildIndex,
     /// A subset of `BuildIndex`; means: build an inverted index but assume the
     /// forward index has been already built (e.g., in a previous run).
+    #[strum(serialize = "parse")]
     ParseCollection,
     /// Inverting stage; mean: compress an inverted index but do not invert forward
     /// index, assuming it has been done already.
     /// **Note**: it implicitly suppresses parsing as in `ParseCollection`
+    #[strum(serialize = "invert")]
     Invert,
-}
-impl FromStr for Stage {
-    type Err = Error;
-
-    /// Parse string and return a stage enum if string correct.
-    fn from_str(name: &str) -> Result<Self, Error> {
-        match name.to_lowercase().as_ref() {
-            "compile" => Ok(Stage::Compile),
-            "build" => Ok(Stage::BuildIndex),
-            "parse" => Ok(Stage::ParseCollection),
-            "invert" => Ok(Stage::Invert),
-            _ => Err(format!("invalid stage: {}", &name).into()),
-        }
-    }
-}
-impl fmt::Display for Stage {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "{}",
-            match self {
-                Stage::Compile => "compile",
-                Stage::BuildIndex => "build",
-                Stage::ParseCollection => "parse",
-                Stage::Invert => "invert",
-            }
-        )
-    }
 }
 
 /// Prints the passed command and returns it back.

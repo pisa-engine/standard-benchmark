@@ -2,6 +2,7 @@ extern crate tempdir;
 
 use super::config::*;
 use super::executor::PisaExecutor;
+use super::run::Run;
 use super::source::*;
 use super::*;
 use boolinator::Boolinator;
@@ -10,6 +11,7 @@ use std::convert::TryFrom;
 use std::fs::Permissions;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 use tempdir::TempDir;
 
 pub(crate) struct MockSetup {
@@ -20,55 +22,51 @@ pub(crate) struct MockSetup {
     pub term_count: usize,
 }
 
+fn mock_program(tmp: &TempDir, setup: &mut MockSetup, program: &'static str) {
+    let path = tmp.path().join(format!("{}.out", program));
+    let prog = tmp.path().join(program);
+    make_echo(&prog, &path).unwrap();
+    setup.outputs.insert(program, path);
+    setup.programs.insert(program, prog);
+}
+
 pub(crate) fn mock_set_up(tmp: &TempDir) -> MockSetup {
-    let mut output_paths: HashMap<&'static str, PathBuf> = HashMap::new();
-    let mut programs: HashMap<&'static str, PathBuf> = HashMap::new();
-
-    let parse_path = tmp.path().join("parse_collection.out");
-    let parse_prog = tmp.path().join("parse_collection");
-    make_echo(&parse_prog, &parse_path).unwrap();
-    output_paths.insert("parse", parse_path);
-    programs.insert("parse", parse_prog);
-
-    let invert_path = tmp.path().join("invert.out");
-    let invert_prog = tmp.path().join("invert");
-    make_echo(&invert_prog, &invert_path).unwrap();
-    output_paths.insert("invert", invert_path);
-    programs.insert("invert", invert_prog);
-    std::fs::write(tmp.path().join("fwd.terms"), "term1\nterm2\nterm3\n").unwrap();
-
-    let compress_path = tmp.path().join("create_freq_index.out");
-    let compress_prog = tmp.path().join("create_freq_index");
-    make_echo(&compress_prog, &compress_path).unwrap();
-    output_paths.insert("compress", compress_path);
-    programs.insert("compress", compress_prog);
-
-    let wand_path = tmp.path().join("create_wand_data.out");
-    let wand_prog = tmp.path().join("create_wand_data");
-    make_echo(&wand_prog, &wand_path).unwrap();
-    output_paths.insert("wand", wand_path);
-    programs.insert("wand", wand_prog);
-
     let mut config = Config::new(tmp.path(), Box::new(CustomPathSource::from(tmp.path())));
-    config.collections.push(Collection {
+    config.collections.push(Rc::new(Collection {
         name: String::from("wapo"),
         collection_dir: tmp.path().join("coll"),
         forward_index: tmp.path().join("fwd"),
         inverted_index: tmp.path().join("inv"),
         encodings: vec!["block_simdbp".into(), "block_qmx".into()],
+    }));
+    config.runs.push(Run::Evaluate {
+        collection: Rc::clone(config.collections.last().unwrap()),
+        topics: PathBuf::from("topics"),
+        qrels: PathBuf::from("qrels"),
     });
 
     let data_dir = tmp.path().join("coll").join("data");
     create_dir_all(&data_dir).unwrap();
     std::fs::File::create(data_dir.join("f.jl")).unwrap();
     let executor = config.executor().unwrap();
-    MockSetup {
+
+    let mut mock_setup = MockSetup {
         config,
         executor,
-        programs,
-        outputs: output_paths,
+        programs: HashMap::new(),
+        outputs: HashMap::new(),
         term_count: 3,
-    }
+    };
+
+    mock_program(&tmp, &mut mock_setup, "parse_collection");
+    mock_program(&tmp, &mut mock_setup, "invert");
+    mock_program(&tmp, &mut mock_setup, "create_freq_index");
+    mock_program(&tmp, &mut mock_setup, "create_wand_data");
+    mock_program(&tmp, &mut mock_setup, "lexicon");
+    mock_program(&tmp, &mut mock_setup, "evaluate_queries");
+    std::fs::write(tmp.path().join("fwd.terms"), "term1\nterm2\nterm3\n").unwrap();
+
+    mock_setup
 }
 
 pub(crate) fn make_echo<P, Q>(program: P, output: Q) -> Result<(), Error>

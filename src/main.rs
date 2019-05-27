@@ -4,15 +4,20 @@ extern crate git2;
 extern crate json;
 extern crate stdbench;
 extern crate stderrlog;
+extern crate tempdir;
 
 use clap::{App, Arg};
 use log::{error, info, warn};
 use std::env;
 use std::path::PathBuf;
 use std::process;
+use std::process::Command;
 use stdbench::build;
 use stdbench::config::Config;
 use stdbench::error::Error;
+use stdbench::run::{evaluate, Run};
+use strum::IntoEnumIterator;
+use tempdir::TempDir;
 
 pub fn app<'a, 'b>() -> App<'a, 'b> {
     App::new("PISA standard benchmark for regression tests.")
@@ -20,12 +25,19 @@ pub fn app<'a, 'b>() -> App<'a, 'b> {
         .author("Michal Siedlaczek <michal.siedlaczek@gmail.com>")
         .arg(
             Arg::with_name("config-file")
+                .help("Configuration file path")
                 .long("config-file")
                 .takes_value(true)
                 .required(true),
         )
         .arg(
+            Arg::with_name("print-stages")
+                .help("Prints all available stages")
+                .long("print-stages"),
+        )
+        .arg(
             Arg::with_name("suppress")
+                .help("A list of stages to suppress")
                 .long("suppress")
                 .multiple(true)
                 .takes_value(true),
@@ -34,6 +46,12 @@ pub fn app<'a, 'b>() -> App<'a, 'b> {
 
 fn parse_config(args: Vec<String>) -> Result<Config, Error> {
     let matches = app().get_matches_from(args);
+    if matches.is_present("print-stages") {
+        for stage in stdbench::Stage::iter() {
+            println!("{}", stage);
+        }
+        std::process::exit(0);
+    }
     info!("Parsing config");
     let config_file = matches
         .value_of("config-file")
@@ -61,6 +79,36 @@ fn run() -> Result<(), Error> {
 
     for collection in &config.collections {
         build::collection(executor.as_ref(), collection, &config)?;
+    }
+    for run in &config.runs {
+        info!("{:?}", run);
+        match run {
+            Run::Evaluate {
+                collection,
+                topics,
+                qrels,
+            } => {
+                executor.extract_topics(&topics, &topics)?;
+                let output = evaluate(
+                    executor.as_ref(),
+                    &run,
+                    &collection.encodings.first().unwrap(),
+                )?;
+                let tmp =
+                    TempDir::new("evaluate_queries").expect("Failed to create temp directory");
+                let results_path = tmp.path().join("results.trec");
+                std::fs::write(&results_path, &output)?;
+                Command::new("trec_eval")
+                    .arg("-a")
+                    .arg(qrels.to_str().unwrap())
+                    .arg(results_path.to_str().unwrap())
+                    .status()
+                    .unwrap();
+            }
+            _ => {
+                unimplemented!();
+            }
+        }
     }
     Ok(())
 }
