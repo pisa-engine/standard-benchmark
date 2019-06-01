@@ -49,6 +49,7 @@ after_success: |
   if [[ "$TRAVIS_RUST_VERSION" == nightly ]]; then
     cargo doc-upload --token ${GITHUB_TOKEN}
     cargo kcov --print-install-kcov-sh | sh
+    cargo clean
     cargo kcov --coveralls -v -- \
         --verify \
         --exclude-pattern=.cargo,/usr/include,tests.rs,main.rs
