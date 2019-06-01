@@ -12,6 +12,7 @@ use std::fs::Permissions;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::Arc;
 use tempdir::TempDir;
 
 pub(crate) struct MockSetup {
@@ -64,6 +65,7 @@ pub(crate) fn mock_set_up(tmp: &TempDir) -> MockSetup {
     mock_program(&tmp, &mut mock_setup, "create_wand_data");
     mock_program(&tmp, &mut mock_setup, "lexicon");
     mock_program(&tmp, &mut mock_setup, "evaluate_queries");
+    mock_program(&tmp, &mut mock_setup, "extract_topics");
     std::fs::write(tmp.path().join("fwd.terms"), "term1\nterm2\nterm3\n").unwrap();
 
     mock_setup
@@ -85,6 +87,11 @@ where
     } else {
         Err("this function is only supported on UNIX systems".into())
     }
+}
+
+#[derive(Debug, Default)]
+pub(crate) struct TestLogger {
+    pub(crate) sinks: Arc<Option<usize>>, //pub(crate) messages: Option<Arc<RwLock<Vec<String>>>>
 }
 
 #[test]

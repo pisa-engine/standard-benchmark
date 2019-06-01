@@ -89,24 +89,27 @@ fn term_count(collection: &Collection) -> Result<usize, Error> {
 /// # use stdbench::Stage;
 /// let stage = Stage::BuildIndex; // suppresses the entire function
 /// let stage = Stage::ParseCollection; // suppresses building forward index
-/// let stage = Stage::Invert; // as ParseCollection + suppresses building inverted index
+/// let stage = Stage::Invert; // suppresses building inverted index
 /// ```
 pub fn collection(
     executor: &PisaExecutor,
     collection: &Collection,
     config: &Config,
-) -> Result<(), Error> {
+) -> Result<Vec<Stage>, Error> {
+    let mut stages_run: Vec<Stage> = Vec::new();
     info!("Processing collection: {}", collection.name);
+    let name = &collection.name;
     if config.is_suppressed(Stage::BuildIndex) {
-        warn!("Suppressed index building");
+        warn!("[{}] [build] Suppressed", name);
     } else {
-        let name = &collection.name;
+        stages_run.push(Stage::BuildIndex);
         info!("[{}] [build] Building index", name);
         ensure_parent_exists(&collection.forward_index)?;
         ensure_parent_exists(&collection.inverted_index)?;
         if config.is_suppressed(Stage::ParseCollection) {
             warn!("[{}] [build] [parse] Suppressed", name);
         } else {
+            stages_run.push(Stage::ParseCollection);
             info!("[{}] [build] [parse] Parsing collection", name);
             let pipeline = parse_command(&*executor, &collection)?;
             debug!("\n{}", pipeline.display(Verbosity::Verbose));
@@ -115,9 +118,10 @@ pub fn collection(
             executor.build_lexicon(format!("{}.terms", fwd), format!("{}.termmap", fwd))?;
             executor.build_lexicon(format!("{}.documents", fwd), format!("{}.docmap", fwd))?;
         }
-        if config.is_suppressed(Stage::Invert) || config.is_suppressed(Stage::ParseCollection) {
+        if config.is_suppressed(Stage::Invert) {
             warn!("[{}] [build] [invert] Suppressed", name);
         } else {
+            stages_run.push(Stage::Invert);
             info!("[{}] [build] [invert] Inverting index", name);
             executor.invert(
                 &collection.forward_index,
@@ -131,7 +135,7 @@ pub fn collection(
         }
         executor.create_wand_data(&collection.inverted_index)?;
     }
-    Ok(())
+    Ok(stages_run)
 }
 
 #[cfg(test)]

@@ -69,7 +69,6 @@ pub enum Stage {
     ParseCollection,
     /// Inverting stage; mean: compress an inverted index but do not invert forward
     /// index, assuming it has been done already.
-    /// **Note**: it implicitly suppresses parsing as in `ParseCollection`
     #[strum(serialize = "invert")]
     Invert,
 }

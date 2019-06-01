@@ -83,7 +83,7 @@ impl Run {
         let typ = yaml.require_string("type")?;
         match typ {
             "evaluate" => Self::parse_evaluate(yaml, Rc::clone(collection)),
-            unknown => Err(Error::from(format!("unknown collection type: {}", unknown))),
+            unknown => Err(Error::from(format!("unknown run type: {}", unknown))),
         }
     }
 

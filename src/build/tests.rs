@@ -1,7 +1,8 @@
 extern crate tempdir;
+extern crate yaml_rust;
 
-use super::super::tests::{mock_set_up, MockSetup};
 use super::*;
+use crate::tests::{mock_set_up, MockSetup};
 use std::fs::{create_dir, File};
 use std::path::PathBuf;
 use tempdir::TempDir;
@@ -81,6 +82,37 @@ fn test_collection() {
             tmp.path().join("fwd").display(),
         )
     );
+}
+
+#[test]
+fn test_suppressed_build() {
+    let tmp = TempDir::new("build").unwrap();
+    let MockSetup {
+        mut config,
+        executor,
+        programs: _,
+        outputs: _,
+        term_count: _,
+    } = mock_set_up(&tmp);
+    config.suppress_stage(Stage::BuildIndex);
+    let stages = collection(executor.as_ref(), &config.collections[0], &config).unwrap();
+    assert_eq!(stages, vec![]);
+}
+
+#[test]
+fn test_suppressed_parse_and_invert() {
+    let tmp = TempDir::new("build").unwrap();
+    let MockSetup {
+        mut config,
+        executor,
+        programs: _,
+        outputs: _,
+        term_count: _,
+    } = mock_set_up(&tmp);
+    config.suppress_stage(Stage::ParseCollection);
+    config.suppress_stage(Stage::Invert);
+    let stages = collection(executor.as_ref(), &config.collections[0], &config).unwrap();
+    assert_eq!(stages, vec![Stage::BuildIndex]);
 }
 
 #[test]
