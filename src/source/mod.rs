@@ -61,7 +61,7 @@ pub trait PisaSource: Debug + Downcast {
     fn executor(&self, config: &Config) -> Result<Box<dyn PisaExecutor>, Error>;
 }
 impl_downcast!(PisaSource);
-impl PisaSource {
+impl dyn PisaSource {
     fn parse_git_source(yaml: &Yaml) -> Result<GitSource, Error> {
         match (yaml["url"].as_str(), yaml["branch"].as_str()) {
             (None, _) => Err("missing source.url".into()),

@@ -8,8 +8,15 @@ addons:
   apt:
     packages:
       - cmake
+      - g++
+      - pkg-config
+      - jq
       - libssl-dev
-      - kcov
+      - libcurl4-openssl-dev
+      - libelf-dev
+      - libdw-dev
+      - binutils-dev
+      - libiberty-dev
 
 rust:
   - nightly
@@ -41,6 +48,7 @@ after_success: |
   fi
   if [[ "$TRAVIS_RUST_VERSION" == nightly ]]; then
     cargo doc-upload --token ${GITHUB_TOKEN}
+    cargo kcov --print-install-kcov-sh | sh
     cargo kcov --coveralls -v -- \
         --verify \
         --exclude-pattern=/home/elshize/.cargo,/usr/include,tests.rs,main.rs

@@ -18,7 +18,7 @@ use tempdir::TempDir;
 
 pub(crate) struct MockSetup {
     pub config: Config,
-    pub executor: Box<PisaExecutor>,
+    pub executor: Box<dyn PisaExecutor>,
     pub programs: HashMap<&'static str, PathBuf>,
     pub outputs: HashMap<&'static str, PathBuf>,
     pub term_count: usize,
