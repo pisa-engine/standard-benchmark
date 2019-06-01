@@ -11,13 +11,11 @@ use log::{error, info, warn};
 use std::env;
 use std::path::PathBuf;
 use std::process;
-use std::process::Command;
 use stdbench::build;
 use stdbench::config::Config;
 use stdbench::error::Error;
-use stdbench::run::{evaluate, Run};
+use stdbench::run::process_run;
 use strum::IntoEnumIterator;
-use tempdir::TempDir;
 
 pub fn app<'a, 'b>() -> App<'a, 'b> {
     App::new("PISA standard benchmark for regression tests.")
@@ -50,7 +48,7 @@ fn parse_config(args: Vec<String>) -> Result<Config, Error> {
         for stage in stdbench::Stage::iter() {
             println!("{}", stage);
         }
-        std::process::exit(0);
+        process::exit(0);
     }
     info!("Parsing config");
     let config_file = matches
@@ -82,33 +80,7 @@ fn run() -> Result<(), Error> {
     }
     for run in &config.runs {
         info!("{:?}", run);
-        match run {
-            Run::Evaluate {
-                collection,
-                topics,
-                qrels,
-            } => {
-                executor.extract_topics(&topics, &topics)?;
-                let output = evaluate(
-                    executor.as_ref(),
-                    &run,
-                    &collection.encodings.first().unwrap(),
-                )?;
-                let tmp =
-                    TempDir::new("evaluate_queries").expect("Failed to create temp directory");
-                let results_path = tmp.path().join("results.trec");
-                std::fs::write(&results_path, &output)?;
-                Command::new("trec_eval")
-                    .arg("-a")
-                    .arg(qrels.to_str().unwrap())
-                    .arg(results_path.to_str().unwrap())
-                    .status()
-                    .unwrap();
-            }
-            _ => {
-                unimplemented!();
-            }
-        }
+        process_run(executor.as_ref(), run)?;
     }
     Ok(())
 }

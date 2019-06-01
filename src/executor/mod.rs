@@ -22,7 +22,7 @@ pub trait PisaExecutor: Debug + Downcast {
 }
 impl_downcast!(PisaExecutor);
 #[cfg_attr(tarpaulin, skip)] // Due to so many false positives
-impl PisaExecutor {
+impl dyn PisaExecutor {
     /// Runs `invert` command.
     pub fn invert<P1, P2>(
         &self,

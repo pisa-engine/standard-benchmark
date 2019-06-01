@@ -13,7 +13,7 @@ use yaml_rust::YamlLoader;
 
 #[test]
 #[cfg_attr(target_family, unix)]
-fn test_collection() {
+fn test_evaluate() {
     let tmp = TempDir::new("build").unwrap();
     let MockSetup {
         config,
@@ -39,6 +39,25 @@ fn test_collection() {
             tmp.path().join("inv").display(),
         )
     );
+}
+
+#[test]
+#[cfg_attr(target_family, unix)]
+fn test_evaluate_wrong_type() {
+    let tmp = TempDir::new("build").unwrap();
+    let MockSetup {
+        config,
+        executor,
+        programs,
+        outputs,
+        term_count: _,
+    } = mock_set_up(&tmp);
+    assert!(evaluate(
+        executor.as_ref(),
+        &Run::Benchmark,
+        &Encoding::from("block_simdbp"),
+    )
+    .is_err());
 }
 
 #[test]

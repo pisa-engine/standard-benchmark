@@ -2,6 +2,7 @@ extern crate tempdir;
 extern crate yaml_rust;
 
 use super::*;
+use crate::run::EvaluateData;
 use tempdir::TempDir;
 use yaml_rust::YamlLoader;
 
@@ -138,11 +139,11 @@ runs:
         }
     );
     match &conf.runs[0] {
-        Run::Evaluate {
+        Run::Evaluate(EvaluateData {
             collection,
             topics,
             qrels,
-        } => {
+        }) => {
             assert_eq!(collection.name, "wapo");
             assert_eq!(topics, &PathBuf::from("/topics"));
             assert_eq!(qrels, &PathBuf::from("/qrels"));

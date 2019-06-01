@@ -19,7 +19,7 @@ use glob::glob;
 use log::{info, warn};
 
 fn parse_wapo_command(
-    executor: &PisaExecutor,
+    executor: &dyn PisaExecutor,
     collection: &Collection,
 ) -> Result<ProcessPipeline, Error> {
     let input_path = collection.collection_dir.join("data/*.jl");
@@ -50,7 +50,7 @@ fn parse_wapo_command(
 }
 
 fn parse_command(
-    executor: &PisaExecutor,
+    executor: &dyn PisaExecutor,
     collection: &Collection,
 ) -> Result<ProcessPipeline, Error> {
     match collection.name.as_ref() {
@@ -92,7 +92,7 @@ fn term_count(collection: &Collection) -> Result<usize, Error> {
 /// let stage = Stage::Invert; // suppresses building inverted index
 /// ```
 pub fn collection(
-    executor: &PisaExecutor,
+    executor: &dyn PisaExecutor,
     collection: &Collection,
     config: &Config,
 ) -> Result<Vec<Stage>, Error> {

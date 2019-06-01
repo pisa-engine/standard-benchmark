@@ -2,7 +2,7 @@ extern crate tempdir;
 
 use super::config::*;
 use super::executor::PisaExecutor;
-use super::run::Run;
+use super::run::{EvaluateData, Run};
 use super::source::*;
 use super::*;
 use boolinator::Boolinator;
@@ -40,11 +40,11 @@ pub(crate) fn mock_set_up(tmp: &TempDir) -> MockSetup {
         inverted_index: tmp.path().join("inv"),
         encodings: vec!["block_simdbp".into(), "block_qmx".into()],
     }));
-    config.runs.push(Run::Evaluate {
+    config.runs.push(Run::Evaluate(EvaluateData {
         collection: Rc::clone(config.collections.last().unwrap()),
         topics: PathBuf::from("topics"),
         qrels: PathBuf::from("qrels"),
-    });
+    }));
 
     let data_dir = tmp.path().join("coll").join("data");
     create_dir_all(&data_dir).unwrap();

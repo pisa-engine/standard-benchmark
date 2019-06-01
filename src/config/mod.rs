@@ -128,12 +128,10 @@ impl Collection {
                     name: name.to_string(),
                     collection_dir: PathBuf::from(collection_dir),
                     forward_index: PathBuf::from(
-                        fwd.map(String::from)
-                            .unwrap_or_else(|| format!("fwd/{}", &name)),
+                        fwd.map_or_else(|| format!("fwd/{}", &name), String::from),
                     ),
                     inverted_index: PathBuf::from(
-                        inv.map(String::from)
-                            .unwrap_or_else(|| format!("inv/{}", &name)),
+                        inv.map_or_else(|| format!("inv/{}", &name), String::from),
                     ),
                     encodings,
                 })
@@ -189,7 +187,7 @@ pub struct Config {
     /// absolute will be rooted at this directory.
     pub workdir: PathBuf,
     /// Configuration of where the tools come from.
-    pub source: Box<PisaSource>,
+    pub source: Box<dyn PisaSource>,
     suppressed: HashSet<Stage>,
     /// Configuration of all collections to be tested.
     pub collections: Vec<Rc<Collection>>,
@@ -199,7 +197,7 @@ pub struct Config {
 impl Config {
     /// Constructs a new configuration with `workdir` and a source.
     /// It is recommended that `workdir` is an absolute path to avoid any misunderstandings.
-    pub fn new<P>(workdir: P, source: Box<PisaSource>) -> Self
+    pub fn new<P>(workdir: P, source: Box<dyn PisaSource>) -> Self
     where
         P: AsRef<Path>,
     {
@@ -232,7 +230,7 @@ impl Config {
     /// // config.suppress_stage(Stage::Compile);
     /// let executor = config.executor();
     /// ```
-    pub fn executor(&self) -> Result<Box<PisaExecutor>, Error> {
+    pub fn executor(&self) -> Result<Box<dyn PisaExecutor>, Error> {
         self.source.executor(&self)
     }
 
