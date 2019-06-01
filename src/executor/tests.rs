@@ -3,6 +3,7 @@ extern crate tempdir;
 
 use super::super::tests::{mock_set_up, MockSetup};
 use super::config::*;
+use super::run::process_run;
 use super::source::*;
 use super::*;
 use std::fs::create_dir_all;
@@ -50,7 +51,7 @@ fn test_invert() {
 #[cfg_attr(target_family, unix)]
 fn test_compress() {
     test_exec(
-        "compress",
+        "create_freq_index",
         "Failed to compress index",
         |setup: &MockSetup| {
             setup.executor.compress(
@@ -64,11 +65,15 @@ fn test_compress() {
 #[test]
 #[cfg_attr(target_family, unix)]
 fn test_create_wand_data() {
-    test_exec("wand", "Failed to create WAND data", |setup: &MockSetup| {
-        setup
-            .executor
-            .create_wand_data(&setup.config.collections[0].inverted_index)
-    });
+    test_exec(
+        "create_wand_data",
+        "Failed to create WAND data",
+        |setup: &MockSetup| {
+            setup
+                .executor
+                .create_wand_data(&setup.config.collections[0].inverted_index)
+        },
+    );
 }
 
 #[test]
@@ -183,5 +188,39 @@ fn test_init_git_suppress_compilation() {
                 .to_str()
                 .unwrap()
         )))
+    );
+}
+
+#[test]
+fn test_process_run() {
+    let tmp = TempDir::new("executor").unwrap();
+    let MockSetup {
+        config,
+        executor,
+        programs,
+        outputs,
+        term_count: _,
+    } = mock_set_up(&tmp);
+    let run = &config.runs[0];
+    process_run(executor.as_ref(), run).unwrap();
+    let eval = run.as_evaluate().unwrap();
+    assert_eq!(
+        std::fs::read_to_string(outputs.get("extract_topics").unwrap()).unwrap(),
+        format!(
+            "{0} -i {1} -o {1}",
+            programs.get("extract_topics").unwrap().display(),
+            eval.topics.display()
+        )
+    );
+    assert_eq!(
+        std::fs::read_to_string(outputs.get("evaluate_queries").unwrap()).unwrap(),
+        format!(
+            "{0} -t block_simdbp -i {1}.block_simdbp -w {1}.wand -a wand -q {3}.title \
+             --terms {2}.termmap --documents {2}.docmap --stemmer porter2",
+            programs.get("evaluate_queries").unwrap().display(),
+            eval.collection.inv().unwrap(),
+            eval.collection.fwd().unwrap(),
+            eval.topics.display()
+        )
     );
 }

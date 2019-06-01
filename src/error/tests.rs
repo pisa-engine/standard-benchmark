@@ -25,6 +25,10 @@ fn test_from() {
         "error message".to_string()
     );
     assert_eq!(
+        Error::from(Context::new("error message")).inner.to_string(),
+        Context::new("error message").to_string()
+    );
+    assert_eq!(
         Error::from(Context::new("error message".to_string())).to_string(),
         "error message".to_string()
     );

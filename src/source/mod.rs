@@ -58,10 +58,10 @@ pub trait PisaSource: Debug + Downcast {
     /// # let config = Config::new(PathBuf::from("/workdir"), Box::new(source.clone()));
     /// let executor = config.executor();
     /// ```
-    fn executor(&self, config: &Config) -> Result<Box<PisaExecutor>, Error>;
+    fn executor(&self, config: &Config) -> Result<Box<dyn PisaExecutor>, Error>;
 }
 impl_downcast!(PisaSource);
-impl PisaSource {
+impl dyn PisaSource {
     fn parse_git_source(yaml: &Yaml) -> Result<GitSource, Error> {
         match (yaml["url"].as_str(), yaml["branch"].as_str()) {
             (None, _) => Err("missing source.url".into()),
@@ -102,7 +102,7 @@ impl PisaSource {
     ///     Some(&GitSource::new("http://git.url", "master"))
     /// );
     /// ```
-    pub fn parse(yaml: &Yaml) -> Result<Box<PisaSource>, Error> {
+    pub fn parse(yaml: &Yaml) -> Result<Box<dyn PisaSource>, Error> {
         match yaml["type"].as_str() {
             Some(typ) => match typ {
                 "git" => Ok(Box::new(PisaSource::parse_git_source(&yaml)?)),
@@ -141,7 +141,7 @@ where
     }
 }
 impl PisaSource for CustomPathSource {
-    fn executor(&self, config: &Config) -> Result<Box<PisaExecutor>, Error> {
+    fn executor(&self, config: &Config) -> Result<Box<dyn PisaExecutor>, Error> {
         let bin = if self.bin.is_absolute() {
             self.bin.clone()
         } else {
@@ -168,7 +168,7 @@ impl GitSource {
     }
 }
 impl PisaSource for GitSource {
-    fn executor(&self, config: &Config) -> Result<Box<PisaExecutor>, Error> {
+    fn executor(&self, config: &Config) -> Result<Box<dyn PisaExecutor>, Error> {
         init_git(config, self.url.as_ref(), self.branch.as_ref())
     }
 }
@@ -180,7 +180,7 @@ pub struct DockerSource {
 }
 impl PisaSource for DockerSource {
     #[cfg_attr(tarpaulin, skip)]
-    fn executor(&self, _config: &Config) -> Result<Box<PisaExecutor>, Error> {
+    fn executor(&self, _config: &Config) -> Result<Box<dyn PisaExecutor>, Error> {
         unimplemented!();
     }
 }
@@ -190,7 +190,7 @@ fn process(args: &'static str) -> Process {
     Process::new(args.next().unwrap(), args.collect::<Vec<&str>>())
 }
 
-fn init_git(config: &Config, url: &str, branch: &str) -> Result<Box<PisaExecutor>, Error> {
+fn init_git(config: &Config, url: &str, branch: &str) -> Result<Box<dyn PisaExecutor>, Error> {
     let dir = config.workdir.join("pisa");
     if !dir.exists() {
         let clone = Process::new("git", &["clone", &url, dir.to_str().unwrap()]);

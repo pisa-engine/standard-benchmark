@@ -22,7 +22,7 @@ pub trait PisaExecutor: Debug + Downcast {
 }
 impl_downcast!(PisaExecutor);
 #[cfg_attr(tarpaulin, skip)] // Due to so many false positives
-impl PisaExecutor {
+impl dyn PisaExecutor {
     /// Runs `invert` command.
     pub fn invert<P1, P2>(
         &self,
@@ -109,6 +109,109 @@ impl PisaExecutor {
             .success()
             .ok_or("Failed to create WAND data")?;
         Ok(())
+    }
+
+    /// Runs `lexicon build` command.
+    pub fn build_lexicon<P1, P2>(&self, input: P1, output: P2) -> Result<(), Error>
+    where
+        P1: AsRef<Path>,
+        P2: AsRef<Path>,
+    {
+        let input = input
+            .as_ref()
+            .to_str()
+            .ok_or("Failed to parse input path")?;
+        let output = output
+            .as_ref()
+            .to_str()
+            .ok_or("Failed to parse output path")?;
+        let cmd = self.command("lexicon", &["build", input, output]);
+        printed(cmd)
+            .execute()
+            .context("Failed to execute lexicon build")?
+            .success()
+            .ok_or("Failed to build lexicon")?;
+        Ok(())
+    }
+
+    /// Runs `extract_topics` command.
+    pub fn extract_topics<P1, P2>(&self, input: P1, output: P2) -> Result<(), Error>
+    where
+        P1: AsRef<Path>,
+        P2: AsRef<Path>,
+    {
+        let input = input
+            .as_ref()
+            .to_str()
+            .ok_or("Failed to parse input path")?;
+        let output = output
+            .as_ref()
+            .to_str()
+            .ok_or("Failed to parse output path")?;
+        let cmd = self.command("extract_topics", &["-i", input, "-o", output]);
+        printed(cmd)
+            .execute()
+            .context("Failed to execute extract_topics")?
+            .success()
+            .ok_or("Failed to extract topics")?;
+        Ok(())
+    }
+
+    /// Runs `evaluate_queries` command.
+    pub fn evaluate_queries<P1, P2, P3>(
+        &self,
+        inverted_index: P1,
+        forward_index: P2,
+        encoding: &Encoding,
+        queries: P3,
+    ) -> Result<String, Error>
+    where
+        P1: AsRef<Path>,
+        P2: AsRef<Path>,
+        P3: AsRef<Path>,
+    {
+        let inv = inverted_index
+            .as_ref()
+            .to_str()
+            .ok_or("Failed to parse inverted index path")?;
+        let queries = queries
+            .as_ref()
+            .to_str()
+            .ok_or("Failed to parse queries path")?;
+        let fwd = forward_index
+            .as_ref()
+            .to_str()
+            .ok_or("Failed to parse forward index path")?;
+        let cmd = self.command(
+            "evaluate_queries",
+            &[
+                "-t",
+                encoding.as_ref(),
+                "-i",
+                &format!("{}.{}", inv, encoding),
+                "-w",
+                &format!("{}.wand", inv),
+                "-a",
+                "wand",
+                "-q",
+                queries,
+                "--terms",
+                &format!("{}.termmap", fwd),
+                "--documents",
+                &format!("{}.docmap", fwd),
+                "--stemmer",
+                "porter2",
+            ],
+        );
+        let output = printed(cmd)
+            .command()
+            .output()
+            .context("Failed to run evaluate_queries")?;
+        if output.status.success() {
+            Ok(String::from_utf8(output.stdout).unwrap())
+        } else {
+            Err(Error::from(String::from_utf8(output.stderr).unwrap()))
+        }
     }
 }
 

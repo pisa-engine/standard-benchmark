@@ -2,6 +2,7 @@ extern crate tempdir;
 extern crate yaml_rust;
 
 use super::*;
+use crate::run::EvaluateData;
 use tempdir::TempDir;
 use yaml_rust::YamlLoader;
 
@@ -60,6 +61,8 @@ fn test_parse_collection() {
         coll.inverted_index,
         PathBuf::from("/absolute/path/to/inv/wapo")
     );
+    assert_eq!(coll.fwd().unwrap(), "/work/fwd/wapo");
+    assert_eq!(coll.inv().unwrap(), "/absolute/path/to/inv/wapo");
 }
 
 #[test]
@@ -109,7 +112,12 @@ collections:
       forward_index: fwd/wapo
       inverted_index: inv/wapo
       encodings:
-        - block_simdbp";
+        - block_simdbp
+runs:
+    - collection: wapo
+      type: evaluate
+      topics: /topics
+      qrels: /qrels";
     std::fs::write(&config_file, yml)?;
     let conf = Config::from_file(config_file).unwrap();
     assert_eq!(conf.workdir, PathBuf::from("/tmp"));
@@ -121,8 +129,8 @@ collections:
         )
     );
     assert_eq!(
-        conf.collections[0],
-        Collection {
+        conf.collections[0].as_ref(),
+        &Collection {
             name: "wapo".to_string(),
             collection_dir: PathBuf::from("/collections/wapo"),
             forward_index: PathBuf::from("/tmp/fwd/wapo"),
@@ -130,6 +138,18 @@ collections:
             encodings: vec!["block_simdbp".parse().unwrap()]
         }
     );
+    match &conf.runs[0] {
+        Run::Evaluate(EvaluateData {
+            collection,
+            topics,
+            qrels,
+        }) => {
+            assert_eq!(collection.name, "wapo");
+            assert_eq!(topics, &PathBuf::from("/topics"));
+            assert_eq!(qrels, &PathBuf::from("/qrels"));
+        }
+        _ => panic!(),
+    }
     Ok(())
 }
 
@@ -180,4 +200,11 @@ fn test_config_from_file_yaml_error() -> std::io::Result<()> {
     let conf = Config::from_file(config_file).err().unwrap();
     assert_eq!(conf.to_string(), "could not parse YAML file");
     Ok(())
+}
+
+#[test]
+fn test_yaml_ext() {
+    let yaml = YamlLoader::load_from_str("name: wapo").unwrap();
+    assert_eq!(yaml[0].require_string("name"), Ok("wapo"));
+    assert!(yaml[0].require_string("unknown").is_err());
 }
