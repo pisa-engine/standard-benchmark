@@ -46,10 +46,10 @@ fn test_evaluate() {
 fn test_evaluate_wrong_type() {
     let tmp = TempDir::new("build").unwrap();
     let MockSetup {
-        config,
+        config: _,
         executor,
-        programs,
-        outputs,
+        programs: _,
+        outputs: _,
         term_count: _,
     } = mock_set_up(&tmp);
     assert!(evaluate(

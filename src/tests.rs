@@ -8,6 +8,7 @@ use super::*;
 use boolinator::Boolinator;
 use std::collections::HashMap;
 use std::convert::TryFrom;
+use std::env::{set_var, var};
 use std::fs::Permissions;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
@@ -66,6 +67,15 @@ pub(crate) fn mock_set_up(tmp: &TempDir) -> MockSetup {
     mock_program(&tmp, &mut mock_setup, "lexicon");
     mock_program(&tmp, &mut mock_setup, "evaluate_queries");
     mock_program(&tmp, &mut mock_setup, "extract_topics");
+    mock_program(&tmp, &mut mock_setup, "trec_eval");
+    set_var(
+        "PATH",
+        format!(
+            "{}:{}",
+            tmp.path().display(),
+            var("PATH").unwrap_or_else(|_| String::from(""))
+        ),
+    );
     std::fs::write(tmp.path().join("fwd.terms"), "term1\nterm2\nterm3\n").unwrap();
 
     mock_setup

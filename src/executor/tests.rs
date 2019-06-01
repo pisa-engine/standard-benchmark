@@ -205,6 +205,14 @@ fn test_process_run() {
     process_run(executor.as_ref(), run).unwrap();
     let eval = run.as_evaluate().unwrap();
     assert_eq!(
+        std::fs::read_to_string(outputs.get("extract_topics").unwrap()).unwrap(),
+        format!(
+            "{0} -i {1} -o {1}",
+            programs.get("extract_topics").unwrap().display(),
+            eval.topics.display()
+        )
+    );
+    assert_eq!(
         std::fs::read_to_string(outputs.get("evaluate_queries").unwrap()).unwrap(),
         format!(
             "{0} -t block_simdbp -i {1}.block_simdbp -w {1}.wand -a wand -q {3}.title \
