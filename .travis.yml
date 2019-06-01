@@ -51,5 +51,5 @@ after_success: |
     cargo kcov --print-install-kcov-sh | sh
     cargo kcov --coveralls -v -- \
         --verify \
-        --exclude-pattern=/home/elshize/.cargo,/usr/include,tests.rs,main.rs
+        --exclude-pattern=.cargo,/usr/include,tests.rs,main.rs
   fi
