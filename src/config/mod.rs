@@ -1,17 +1,25 @@
 //! Experiment configuration, which is used throughout a run, and mostly
 //! defined in an external YAML configuration file (with several exceptions).
 
+extern crate boolinator;
+extern crate downcast_rs;
+extern crate glob;
 extern crate yaml_rust;
 
+use crate::command::ExtCommand;
 use crate::error::Error;
 use crate::executor::*;
 use crate::run::Run;
 use crate::source::*;
 use crate::*;
+use boolinator::Boolinator;
+use downcast_rs::Downcast;
 use failure::ResultExt;
+use glob::glob;
 use log::error;
 use std::collections::{HashMap, HashSet};
 use std::convert::{From, Into};
+use std::fmt::Debug;
 use std::fs::read_to_string;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -60,6 +68,90 @@ impl AsRef<str> for Encoding {
 impl std::fmt::Display for Encoding {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.as_ref())
+    }
+}
+
+/// Collection type defining parsing command.
+///
+/// Building an index is identical for any collection, but how the files
+/// are accessed for parsing differs.
+/// This trait is defined in order to enable enhancing this libary with
+/// new collection types in the future.
+pub trait CollectionType: Debug + Downcast {
+    /// Returns a command object: its execution will parse the collection
+    /// and build a forward index.
+    fn parse_command(
+        &self,
+        executor: &dyn PisaExecutor,
+        collection: &Collection,
+    ) -> Result<ExtCommand, Error>;
+}
+impl_downcast!(CollectionType);
+
+impl CollectionType {
+    /// Parses a string and returns a requested collection type object,
+    /// or an error if the name is invalid.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # extern crate stdbench;
+    /// extern crate downcast_rs;
+    /// # use stdbench::config::*;
+    /// use downcast_rs::Downcast;
+    /// assert!(
+    ///     CollectionType::from("wapo")
+    ///         .unwrap()
+    ///         .downcast_ref::<WashingtonPostCollection>()
+    ///         .is_some(),
+    /// );
+    /// ```
+    pub fn from<S>(name: S) -> Result<Box<dyn CollectionType>, Error>
+    where
+        S: AsRef<str>,
+    {
+        match name.as_ref() {
+            "wapo" => Ok(Box::new(WashingtonPostCollection {})),
+            _ => Err(Error::from(format!(
+                "Unknown collection type: {}",
+                name.as_ref()
+            ))),
+        }
+    }
+}
+
+/// WashingtonPost.v2 collection type: [](https://trec.nist.gov/data/wapost)
+#[derive(Debug, PartialEq)]
+pub struct WashingtonPostCollection;
+
+impl CollectionType for WashingtonPostCollection {
+    fn parse_command(
+        &self,
+        executor: &dyn PisaExecutor,
+        collection: &Collection,
+    ) -> Result<ExtCommand, Error> {
+        let input_path = collection.collection_dir.join("data/*.jl");
+        let input = input_path.to_str().unwrap();
+        let input_files: Vec<_> = glob(input).unwrap().filter_map(Result::ok).collect();
+        (!input_files.is_empty()).ok_or(format!(
+            "could not resolve any files for pattern: {}",
+            input
+        ))?;
+        Ok(ExtCommand::new("cat")
+            .args(&input_files)
+            .pipe_command(executor.command("parse_collection"))
+            .args(&[
+                "-o",
+                collection.forward_index.to_str().unwrap(),
+                "-f",
+                "wapo",
+                "--stemmer",
+                "porter2",
+                "--content-parser",
+                "html",
+                "--batch-size",
+                "1000",
+            ]))
     }
 }
 

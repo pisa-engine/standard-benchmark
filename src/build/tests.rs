@@ -131,26 +131,16 @@ fn test_parse_wapo_command() {
         encodings: vec![],
     };
     let expected = format!(
-        "cat {}\n\t| parse_collection -o fwd \
+        "cat {}\n    | parse_collection -o fwd \
          -f wapo --stemmer porter2 --content-parser html --batch-size 1000",
         data_file.to_str().unwrap()
     );
     assert_eq!(
-        format!(
-            "{}",
-            parse_wapo_command(&executor, &cconf)
-                .unwrap()
-                .display(Verbosity::Verbose)
-        ),
+        format!("{}", parse_wapo_command(&executor, &cconf).unwrap()),
         expected
     );
     assert_eq!(
-        format!(
-            "{}",
-            parse_command(&executor, &cconf)
-                .unwrap()
-                .display(Verbosity::Verbose)
-        ),
+        format!("{}", parse_command(&executor, &cconf).unwrap()),
         expected
     );
 }

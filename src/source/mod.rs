@@ -2,16 +2,15 @@
 
 extern crate boolinator;
 extern crate downcast_rs;
-extern crate experiment;
 extern crate failure;
 
+use super::command::ExtCommand;
 use super::config::*;
 use super::error::Error;
 use super::executor::*;
-use super::{execute, printed, Stage};
+use super::{execute, Stage};
 use boolinator::Boolinator;
 use downcast_rs::{impl_downcast, Downcast};
-use experiment::process::Process;
 use failure::ResultExt;
 use log::warn;
 use std::convert::TryFrom;
@@ -185,16 +184,16 @@ impl PisaSource for DockerSource {
     }
 }
 
-fn process(args: &'static str) -> Process {
+fn process(args: &'static str) -> ExtCommand {
     let mut args = args.split(' ');
-    Process::new(args.next().unwrap(), args.collect::<Vec<&str>>())
+    ExtCommand::new(args.next().unwrap()).args(args.collect::<Vec<&str>>())
 }
 
 fn init_git(config: &Config, url: &str, branch: &str) -> Result<Box<dyn PisaExecutor>, Error> {
     let dir = config.workdir.join("pisa");
     if !dir.exists() {
-        let clone = Process::new("git", &["clone", &url, dir.to_str().unwrap()]);
-        execute!(printed(clone).command(); "cloning failed");
+        let clone = ExtCommand::new("git").args(&["clone", &url, dir.to_str().unwrap()]);
+        execute!(clone; "cloning failed");
     };
     let build_dir = dir.join("build");
     create_dir_all(&build_dir).context("Could not create build directory")?;
@@ -202,12 +201,12 @@ fn init_git(config: &Config, url: &str, branch: &str) -> Result<Box<dyn PisaExec
     if config.is_suppressed(Stage::Compile) {
         warn!("Compilation has been suppressed");
     } else {
-        let checkout = Process::new("git", &["checkout", branch]);
-        execute!(printed(checkout).command().current_dir(&dir); "checkout failed");
+        let checkout = ExtCommand::new("git").args(&["checkout", branch]);
+        execute!(checkout.current_dir(&dir); "checkout failed");
         let cmake = process("cmake -DCMAKE_BUILD_TYPE=Release ..");
-        execute!(printed(cmake).command().current_dir(&build_dir); "cmake failed");
+        execute!(cmake.current_dir(&build_dir); "cmake failed");
         let build = process("cmake --build .");
-        execute!(printed(build).command().current_dir(&build_dir); "build failed");
+        execute!(build.current_dir(&build_dir); "build failed");
     }
     let executor = CustomPathExecutor::try_from(build_dir.join("bin"))?;
     Ok(Box::new(executor))

@@ -2,23 +2,22 @@
 
 extern crate boolinator;
 extern crate downcast_rs;
-extern crate experiment;
 extern crate failure;
 
-use super::config::Encoding;
-use super::*;
+use crate::config::Encoding;
+use crate::*;
 use boolinator::Boolinator;
 use downcast_rs::Downcast;
-use experiment::process::Process;
 use failure::ResultExt;
 use std::convert::TryFrom;
 use std::fmt::Debug;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 /// Implementations of this trait execute PISA tools.
 pub trait PisaExecutor: Debug + Downcast {
     /// Builds a process object for a program with given arguments.
-    fn command(&self, program: &str, args: &[&str]) -> Process;
+    fn command(&self, program: &str) -> Command;
 }
 impl_downcast!(PisaExecutor);
 #[cfg_attr(tarpaulin, skip)] // Due to so many false positives
@@ -42,19 +41,16 @@ impl dyn PisaExecutor {
             .as_ref()
             .to_str()
             .ok_or("Failed to parse inverted index path")?;
-        let cmd = self.command(
-            "invert",
-            &[
+        self.command("invert")
+            .args(&[
                 "-i",
                 fwd,
                 "-o",
                 inv,
                 "--term-count",
                 &term_count.to_string(),
-            ],
-        );
-        printed(cmd)
-            .execute()
+            ])
+            .status()
             .context("Failed to execute: invert")?
             .success()
             .ok_or("Failed to invert index")?;
@@ -70,9 +66,8 @@ impl dyn PisaExecutor {
             .as_ref()
             .to_str()
             .ok_or("Failed to parse inverted index path")?;
-        let cmd = self.command(
-            "create_freq_index",
-            &[
+        self.command("create_freq_index")
+            .args(&[
                 "-t",
                 encoding.as_ref(),
                 "-c",
@@ -80,10 +75,8 @@ impl dyn PisaExecutor {
                 "-o",
                 &format!("{}.{}", inv, encoding),
                 "--check",
-            ],
-        );
-        printed(cmd)
-            .execute()
+            ])
+            .status()
             .context("Failed to execute: create_freq_index")?
             .success()
             .ok_or("Failed to compress index")?;
@@ -99,12 +92,9 @@ impl dyn PisaExecutor {
             .as_ref()
             .to_str()
             .ok_or("Failed to parse inverted index path")?;
-        let cmd = self.command(
-            "create_wand_data",
-            &["-c", inv, "-o", &format!("{}.wand", inv)],
-        );
-        printed(cmd)
-            .execute()
+        self.command("create_wand_data")
+            .args(&["-c", inv, "-o", &format!("{}.wand", inv)])
+            .status()
             .context("Failed to execute create_wand_data")?
             .success()
             .ok_or("Failed to create WAND data")?;
@@ -125,9 +115,9 @@ impl dyn PisaExecutor {
             .as_ref()
             .to_str()
             .ok_or("Failed to parse output path")?;
-        let cmd = self.command("lexicon", &["build", input, output]);
-        printed(cmd)
-            .execute()
+        self.command("lexicon")
+            .args(&["build", input, output])
+            .status()
             .context("Failed to execute lexicon build")?
             .success()
             .ok_or("Failed to build lexicon")?;
@@ -148,9 +138,9 @@ impl dyn PisaExecutor {
             .as_ref()
             .to_str()
             .ok_or("Failed to parse output path")?;
-        let cmd = self.command("extract_topics", &["-i", input, "-o", output]);
-        printed(cmd)
-            .execute()
+        self.command("extract_topics")
+            .args(&["-i", input, "-o", output])
+            .status()
             .context("Failed to execute extract_topics")?
             .success()
             .ok_or("Failed to extract topics")?;
@@ -182,9 +172,9 @@ impl dyn PisaExecutor {
             .as_ref()
             .to_str()
             .ok_or("Failed to parse forward index path")?;
-        let cmd = self.command(
-            "evaluate_queries",
-            &[
+        let output = self
+            .command("evaluate_queries")
+            .args(&[
                 "-t",
                 encoding.as_ref(),
                 "-i",
@@ -201,10 +191,7 @@ impl dyn PisaExecutor {
                 &format!("{}.docmap", fwd),
                 "--stemmer",
                 "porter2",
-            ],
-        );
-        let output = printed(cmd)
-            .command()
+            ])
             .output()
             .context("Failed to run evaluate_queries")?;
         if output.status.success() {
@@ -226,8 +213,8 @@ impl SystemPathExecutor {
     }
 }
 impl PisaExecutor for SystemPathExecutor {
-    fn command(&self, program: &str, args: &[&str]) -> Process {
-        Process::new(program, args)
+    fn command(&self, program: &str) -> Command {
+        Command::new(program)
     }
 }
 
@@ -271,8 +258,8 @@ impl CustomPathExecutor {
     }
 }
 impl PisaExecutor for CustomPathExecutor {
-    fn command(&self, program: &str, args: &[&str]) -> Process {
-        Process::new(&self.bin.join(program).to_str().unwrap().to_string(), args)
+    fn command(&self, program: &str) -> Command {
+        Command::new(&self.bin.join(program).to_str().unwrap().to_string())
     }
 }
 

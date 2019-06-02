@@ -2,18 +2,16 @@
 //! including parsing and compressing.
 
 extern crate boolinator;
-extern crate experiment;
 extern crate failure;
 extern crate glob;
 extern crate log;
 
+use super::command::ExtCommand;
 use super::config::*;
 use super::error::Error;
 use super::executor::*;
 use super::*;
 use boolinator::Boolinator;
-use experiment::pipeline;
-use experiment::process::*;
 use failure::{format_err, ResultExt};
 use glob::glob;
 use log::{info, warn};
@@ -21,7 +19,7 @@ use log::{info, warn};
 fn parse_wapo_command(
     executor: &dyn PisaExecutor,
     collection: &Collection,
-) -> Result<ProcessPipeline, Error> {
+) -> Result<ExtCommand, Error> {
     let input_path = collection.collection_dir.join("data/*.jl");
     let input = input_path.to_str().unwrap();
     let input_files: Vec<_> = glob(input).unwrap().filter_map(Result::ok).collect();
@@ -29,30 +27,27 @@ fn parse_wapo_command(
         "could not resolve any files for pattern: {}",
         input
     ))?;
-    Ok(pipeline!(
-        Process::new("cat", &input_files),
-        executor.command(
-            "parse_collection",
-            &[
-                "-o",
-                collection.forward_index.to_str().unwrap(),
-                "-f",
-                "wapo",
-                "--stemmer",
-                "porter2",
-                "--content-parser",
-                "html",
-                "--batch-size",
-                "1000"
-            ]
-        )
-    ))
+    Ok(ExtCommand::new("cat")
+        .args(&input_files)
+        .pipe_command(executor.command("parse_collection"))
+        .args(&[
+            "-o",
+            collection.forward_index.to_str().unwrap(),
+            "-f",
+            "wapo",
+            "--stemmer",
+            "porter2",
+            "--content-parser",
+            "html",
+            "--batch-size",
+            "1000",
+        ]))
 }
 
 fn parse_command(
     executor: &dyn PisaExecutor,
     collection: &Collection,
-) -> Result<ProcessPipeline, Error> {
+) -> Result<ExtCommand, Error> {
     match collection.name.as_ref() {
         "wapo" => parse_wapo_command(executor, collection),
         _ => unimplemented!(""),
@@ -64,8 +59,8 @@ fn parse_command(
 /// Internally, it counts lines of the terms file of the forward index.
 /// If it's not yet built, this function will return an error.
 fn term_count(collection: &Collection) -> Result<usize, Error> {
-    let output = Process::new("wc", &["-l", &format!("{}.terms", collection.fwd()?)])
-        .command()
+    let output = ExtCommand::new("wc")
+        .args(&["-l", &format!("{}.terms", collection.fwd()?)])
         .output()
         .context("Failed to count terms")?;
     output.status.success().ok_or("Failed to count terms")?;
@@ -112,8 +107,7 @@ pub fn collection(
             stages_run.push(Stage::ParseCollection);
             info!("[{}] [build] [parse] Parsing collection", name);
             let pipeline = parse_command(&*executor, &collection)?;
-            debug!("\n{}", pipeline.display(Verbosity::Verbose));
-            execute!(pipeline.pipe(); "Failed to parse");
+            execute!(pipeline; "Failed to parse");
             let fwd = collection.forward_index.display();
             executor.build_lexicon(format!("{}.terms", fwd), format!("{}.termmap", fwd))?;
             executor.build_lexicon(format!("{}.documents", fwd), format!("{}.docmap", fwd))?;

@@ -112,8 +112,8 @@ fn test_make_echo() {
     make_echo(&echo, &output).unwrap();
     let executor = super::executor::CustomPathExecutor::try_from(tmp.path()).unwrap();
     executor
-        .command("e", &["arg1", "--a", "arg2"])
-        .command()
+        .command("e")
+        .args(&["arg1", "--a", "arg2"])
         .status()
         .unwrap();
     let output_text = std::fs::read_to_string(&output).unwrap();

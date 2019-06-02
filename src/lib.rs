@@ -12,15 +12,11 @@
 //! on a collection of a significant size.
 
 extern crate downcast_rs;
-extern crate experiment;
 extern crate failure;
-extern crate json;
 extern crate strum;
 
 use downcast_rs::impl_downcast;
 use error::Error;
-use experiment::process::Process;
-use experiment::Verbosity;
 use log::debug;
 use std::fmt;
 use std::fs::create_dir_all;
@@ -28,6 +24,7 @@ use std::path::Path;
 use strum_macros::{Display, EnumIter, EnumString};
 
 pub mod build;
+pub mod command;
 pub mod config;
 pub mod error;
 pub mod executor;
@@ -71,13 +68,6 @@ pub enum Stage {
     /// index, assuming it has been done already.
     #[strum(serialize = "invert")]
     Invert,
-}
-
-/// Prints the passed command and returns it back.
-#[cfg_attr(tarpaulin, skip)]
-pub fn printed(cmd: Process) -> Process {
-    debug!("[EXEC] {}", cmd.display(Verbosity::Verbose));
-    cmd
 }
 
 /// If the parent directory of `path` does not exist, create it.

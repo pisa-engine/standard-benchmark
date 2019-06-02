@@ -90,7 +90,7 @@ echo ok";
     let source = CustomPathSource::from(tmp.path());
     let config = Config::new("workdir", Box::new(source));
     let executor = config.executor().unwrap();
-    let output = executor.command("program", &[]).command().output().unwrap();
+    let output = executor.command("program").output().unwrap();
     assert_eq!(std::str::from_utf8(&output.stdout).unwrap(), "ok\n");
 }
 

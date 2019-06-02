@@ -1,7 +1,4 @@
 extern crate clap;
-extern crate experiment;
-extern crate git2;
-extern crate json;
 extern crate stdbench;
 extern crate stderrlog;
 extern crate tempdir;
