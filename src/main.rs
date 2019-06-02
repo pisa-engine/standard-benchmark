@@ -5,13 +5,14 @@ extern crate tempdir;
 
 use clap::{App, Arg};
 use log::{error, info, warn};
+use std::collections::HashSet;
 use std::env;
 use std::path::PathBuf;
 use std::process;
 use stdbench::build;
 use stdbench::config::Config;
 use stdbench::error::Error;
-use stdbench::run::process_run;
+use stdbench::run::{process_run, Run};
 use strum::IntoEnumIterator;
 
 pub fn app<'a, 'b>() -> App<'a, 'b> {
@@ -37,6 +38,42 @@ pub fn app<'a, 'b>() -> App<'a, 'b> {
                 .multiple(true)
                 .takes_value(true),
         )
+        .arg(
+            Arg::with_name("collections")
+                .help("Filter out collections you want to run")
+                .long("collections")
+                .multiple(true)
+                .takes_value(true),
+        )
+}
+
+fn filter_collections<'a, I>(mut config: &mut Config, collections: I)
+where
+    I: IntoIterator<Item = &'a str>,
+{
+    let colset = collections.into_iter().collect::<HashSet<&str>>();
+    config.collections = config
+        .collections
+        .iter()
+        .filter(|c| {
+            let name = c.kind.to_string();
+            colset.contains(&name.as_ref())
+        })
+        .cloned()
+        .collect();
+    config.runs = config
+        .runs
+        .iter()
+        .filter(|r| {
+            if let Run::Evaluate(run) = r {
+                let name = run.collection.kind.to_string();
+                colset.contains(&name.as_ref())
+            } else {
+                false
+            }
+        })
+        .cloned()
+        .collect();
 }
 
 fn parse_config(args: Vec<String>) -> Result<Config, Error> {
@@ -60,6 +97,9 @@ fn parse_config(args: Vec<String>) -> Result<Config, Error> {
                 warn!("Requested suppression of stage `{}` that is invalid", name);
             }
         }
+    }
+    if let Some(collections) = matches.values_of("collections") {
+        filter_collections(&mut config, collections);
     }
     Ok(config)
 }

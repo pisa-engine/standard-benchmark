@@ -13,7 +13,7 @@ use tempdir::TempDir;
 use yaml_rust::Yaml;
 
 /// Data for evaluation run.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct EvaluateData {
     /// Pointer to evalated collection
     pub collection: Rc<Collection>,
@@ -25,7 +25,7 @@ pub struct EvaluateData {
 }
 
 /// An experimental run.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Run {
     /// Report selected precision metrics.
     Evaluate(EvaluateData),
