@@ -35,7 +35,7 @@ fn mock_program(tmp: &TempDir, setup: &mut MockSetup, program: &'static str) {
 pub(crate) fn mock_set_up(tmp: &TempDir) -> MockSetup {
     let mut config = Config::new(tmp.path(), Box::new(CustomPathSource::from(tmp.path())));
     config.collections.push(Rc::new(Collection {
-        name: String::from("wapo"),
+        kind: WashingtonPostCollection::boxed(),
         collection_dir: tmp.path().join("coll"),
         forward_index: tmp.path().join("fwd"),
         inverted_index: tmp.path().join("inv"),

@@ -12,47 +12,8 @@ use super::error::Error;
 use super::executor::*;
 use super::*;
 use boolinator::Boolinator;
-use failure::{format_err, ResultExt};
-use glob::glob;
+use failure::ResultExt;
 use log::{info, warn};
-
-fn parse_wapo_command(
-    executor: &dyn PisaExecutor,
-    collection: &Collection,
-) -> Result<ExtCommand, Error> {
-    let input_path = collection.collection_dir.join("data/*.jl");
-    let input = input_path.to_str().unwrap();
-    let input_files: Vec<_> = glob(input).unwrap().filter_map(Result::ok).collect();
-    (!input_files.is_empty()).ok_or(format_err!(
-        "could not resolve any files for pattern: {}",
-        input
-    ))?;
-    Ok(ExtCommand::new("cat")
-        .args(&input_files)
-        .pipe_command(executor.command("parse_collection"))
-        .args(&[
-            "-o",
-            collection.forward_index.to_str().unwrap(),
-            "-f",
-            "wapo",
-            "--stemmer",
-            "porter2",
-            "--content-parser",
-            "html",
-            "--batch-size",
-            "1000",
-        ]))
-}
-
-fn parse_command(
-    executor: &dyn PisaExecutor,
-    collection: &Collection,
-) -> Result<ExtCommand, Error> {
-    match collection.name.as_ref() {
-        "wapo" => parse_wapo_command(executor, collection),
-        _ => unimplemented!(""),
-    }
-}
 
 /// Retrieves the term count of an already built collection.
 ///
@@ -92,8 +53,8 @@ pub fn collection(
     config: &Config,
 ) -> Result<Vec<Stage>, Error> {
     let mut stages_run: Vec<Stage> = Vec::new();
-    info!("Processing collection: {}", collection.name);
-    let name = &collection.name;
+    info!("Processing collection: {}", collection.kind);
+    let name = &collection.kind.to_string();
     if config.is_suppressed(Stage::BuildIndex) {
         warn!("[{}] [build] Suppressed", name);
     } else {
@@ -106,7 +67,7 @@ pub fn collection(
         } else {
             stages_run.push(Stage::ParseCollection);
             info!("[{}] [build] [parse] Parsing collection", name);
-            let pipeline = parse_command(&*executor, &collection)?;
+            let pipeline = collection.kind.parse_command(&*executor, &collection)?;
             execute!(pipeline; "Failed to parse");
             let fwd = collection.forward_index.display();
             executor.build_lexicon(format!("{}.terms", fwd), format!("{}.termmap", fwd))?;

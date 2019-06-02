@@ -17,7 +17,6 @@ extern crate strum;
 
 use downcast_rs::impl_downcast;
 use error::Error;
-use log::debug;
 use std::fmt;
 use std::fs::create_dir_all;
 use std::path::Path;

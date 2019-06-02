@@ -32,8 +32,8 @@ pub struct ExtCommand {
 }
 impl ExtCommand {
     /// Constructs a new verbose command.
-    pub fn new<S: AsRef<OsStr>>(program: S) -> ExtCommand {
-        ExtCommand {
+    pub fn new<S: AsRef<OsStr>>(program: S) -> Self {
+        Self {
             verbosity: Verbosity::Verbose,
             command: Command::new(program),
             pipeline: vec![],
@@ -41,7 +41,7 @@ impl ExtCommand {
     }
 
     /// Adds a single argument.
-    pub fn arg<S: AsRef<OsStr>>(mut self, arg: S) -> ExtCommand {
+    pub fn arg<S: AsRef<OsStr>>(mut self, arg: S) -> Self {
         if let Some(cmd) = self.pipeline.last_mut() {
             cmd.arg(arg);
         } else {
@@ -51,7 +51,7 @@ impl ExtCommand {
     }
 
     /// Adds a sequence of arguments.
-    pub fn args<I, S>(mut self, args: I) -> ExtCommand
+    pub fn args<I, S>(mut self, args: I) -> Self
     where
         I: IntoIterator<Item = S>,
         S: AsRef<OsStr>,
@@ -65,7 +65,7 @@ impl ExtCommand {
     }
 
     /// Changes the directory from which the command will be executed.
-    pub fn current_dir<P: AsRef<Path>>(mut self, dir: P) -> ExtCommand {
+    pub fn current_dir<P: AsRef<Path>>(mut self, dir: P) -> Self {
         if let Some(cmd) = self.pipeline.last_mut() {
             cmd.current_dir(dir);
         } else {
@@ -79,7 +79,7 @@ impl ExtCommand {
         drop(self.command);
         let mut cmds = self.pipeline.into_iter().collect::<VecDeque<_>>();
         let last = cmds.pop_back().unwrap();
-        for mut cmd in cmds.into_iter() {
+        for mut cmd in cmds {
             cmd.spawn()?;
             drop(cmd);
         }
@@ -88,9 +88,8 @@ impl ExtCommand {
 
     /// Executes the command and waits for the output.
     pub fn output(mut self) -> Result<Output, Error> {
-        match &self.verbosity {
-            Verbosity::Verbose => debug!("[EXEC] {}", &self),
-            _ => {}
+        if let Verbosity::Verbose = &self.verbosity {
+            debug!("[EXEC] {}", &self);
         }
         if self.pipeline.is_empty() {
             Ok(self.command.output()?)
@@ -101,9 +100,8 @@ impl ExtCommand {
 
     /// Executes the command and waits for the output.
     pub fn status(mut self) -> Result<ExitStatus, Error> {
-        match &self.verbosity {
-            Verbosity::Verbose => debug!("[EXEC] {}", &self),
-            _ => {}
+        if let Verbosity::Verbose = &self.verbosity {
+            debug!("[EXEC] {}", &self);
         }
         if self.pipeline.is_empty() {
             Ok(self.command.status()?)
@@ -113,7 +111,7 @@ impl ExtCommand {
     }
 
     /// Pipe another command.
-    pub fn pipe_command(mut self, mut command: Command) -> ExtCommand {
+    pub fn pipe_command(mut self, mut command: Command) -> Self {
         let (reader, writer) = pipe().expect("Failed opening a pipe");
         if let Some(cmd) = self.pipeline.last_mut() {
             cmd.stdout(writer);
@@ -126,7 +124,7 @@ impl ExtCommand {
     }
 
     /// Pipe another command.
-    pub fn pipe_new<S: AsRef<OsStr>>(mut self, program: S) -> ExtCommand {
+    pub fn pipe_new<S: AsRef<OsStr>>(mut self, program: S) -> Self {
         let (reader, writer) = pipe().expect("Failed opening a pipe");
         if let Some(cmd) = self.pipeline.last_mut() {
             cmd.stdout(writer);
@@ -140,15 +138,15 @@ impl ExtCommand {
     }
 
     /// Turn off automatic printing.
-    pub fn mute(mut self) -> ExtCommand {
+    pub fn mute(mut self) -> Self {
         self.verbosity = Verbosity::Silent;
         self
     }
 }
 
 impl From<Command> for ExtCommand {
-    fn from(command: Command) -> ExtCommand {
-        ExtCommand {
+    fn from(command: Command) -> Self {
+        Self {
             verbosity: Verbosity::Verbose,
             command,
             pipeline: vec![],

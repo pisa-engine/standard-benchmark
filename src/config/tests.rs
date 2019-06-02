@@ -75,8 +75,8 @@ fn test_parse_collection_missing_coll_dir() {
     )
     .unwrap();
     assert_eq!(
-        test_conf().parse_collection(&yaml[0]),
-        Err("undefined collection_dir".into())
+        test_conf().parse_collection(&yaml[0]).err(),
+        Some("undefined collection_dir".into())
     );
 }
 
@@ -91,8 +91,8 @@ fn test_parse_collection_missing_encodings() {
     )
     .unwrap();
     assert_eq!(
-        test_conf().parse_collection(&yaml[0]),
-        Err("failed to parse collection wapo: missing or corrupted encoding list".into())
+        test_conf().parse_collection(&yaml[0]).err(),
+        Some("failed to parse collection wapo: missing or corrupted encoding list".into())
     );
 }
 
@@ -131,7 +131,7 @@ runs:
     assert_eq!(
         conf.collections[0].as_ref(),
         &Collection {
-            name: "wapo".to_string(),
+            kind: WashingtonPostCollection::boxed(),
             collection_dir: PathBuf::from("/collections/wapo"),
             forward_index: PathBuf::from("/tmp/fwd/wapo"),
             inverted_index: PathBuf::from("/tmp/inv/wapo"),
@@ -144,7 +144,7 @@ runs:
             topics,
             qrels,
         }) => {
-            assert_eq!(collection.name, "wapo");
+            assert_eq!(collection.kind.to_string(), "wapo");
             assert_eq!(topics, &PathBuf::from("/topics"));
             assert_eq!(qrels, &PathBuf::from("/qrels"));
         }

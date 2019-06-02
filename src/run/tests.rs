@@ -2,7 +2,7 @@ extern crate tempdir;
 extern crate yaml_rust;
 
 use super::{evaluate, Run};
-use crate::config::{Collection, CollectionMap, Encoding};
+use crate::config::{Collection, CollectionMap, Encoding, WashingtonPostCollection};
 use crate::error::Error;
 use crate::tests::{mock_set_up, MockSetup};
 use std::collections::HashMap;
@@ -67,7 +67,7 @@ fn test_unknown_run_type() {
     collections.insert(
         String::from("wapo"),
         Rc::new(Collection {
-            name: String::from("wapo"),
+            kind: WashingtonPostCollection::boxed(),
             collection_dir: PathBuf::from("/coll/dir"),
             forward_index: PathBuf::from("fwd"),
             inverted_index: PathBuf::from("inv"),
@@ -75,7 +75,7 @@ fn test_unknown_run_type() {
         }),
     );
     assert_eq!(
-        Run::parse(&yaml[0], &collections),
-        Err(Error::from("unknown run type: unknown"))
+        Run::parse(&yaml[0], &collections).err(),
+        Some(Error::from("unknown run type: unknown"))
     );
 }

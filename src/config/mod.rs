@@ -77,7 +77,7 @@ impl std::fmt::Display for Encoding {
 /// are accessed for parsing differs.
 /// This trait is defined in order to enable enhancing this libary with
 /// new collection types in the future.
-pub trait CollectionType: Debug + Downcast {
+pub trait CollectionType: Debug + Downcast + fmt::Display {
     /// Returns a command object: its execution will parse the collection
     /// and build a forward index.
     fn parse_command(
@@ -123,7 +123,18 @@ impl CollectionType {
 /// WashingtonPost.v2 collection type: [](https://trec.nist.gov/data/wapost)
 #[derive(Debug, PartialEq)]
 pub struct WashingtonPostCollection;
+impl WashingtonPostCollection {
+    /// Returns the object wrapped in `Box`.
+    pub fn boxed() -> Box<Self> {
+        Box::new(Self {})
+    }
+}
 
+impl fmt::Display for WashingtonPostCollection {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "wapo")
+    }
+}
 impl CollectionType for WashingtonPostCollection {
     fn parse_command(
         &self,
@@ -156,10 +167,10 @@ impl CollectionType for WashingtonPostCollection {
 }
 
 /// Configuration of a tested collection.
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub struct Collection {
     /// A collection name used also as a type when deciding on how to parse it.
-    pub name: String,
+    pub kind: Box<dyn CollectionType>,
     /// The root directory of the collection. Depending on a type, it could
     /// contain one or many files or directories. Must use `name` to determine
     /// how to find relevant data.
@@ -173,6 +184,23 @@ pub struct Collection {
     /// one for each technique.
     pub encodings: Vec<Encoding>,
 }
+impl PartialEq for Collection {
+    fn eq(&self, other: &Self) -> bool {
+        (
+            self.kind.to_string(),
+            &self.collection_dir,
+            &self.forward_index,
+            &self.inverted_index,
+            &self.encodings,
+        ) == (
+            other.kind.to_string(),
+            &other.collection_dir,
+            &other.forward_index,
+            &other.inverted_index,
+            &other.encodings,
+        )
+    }
+}
 impl Collection {
     /// Constructs a collection config from a YAML object.
     ///
@@ -182,7 +210,7 @@ impl Collection {
     /// extern crate yaml_rust;
     /// # extern crate stdbench;
     /// # use stdbench::config;
-    /// # use stdbench::config::{Collection, Encoding};
+    /// # use stdbench::config::*;
     /// # use std::path::PathBuf;
     /// let yaml = yaml_rust::YamlLoader::load_from_str("
     /// name: wapo
@@ -195,7 +223,7 @@ impl Collection {
     /// assert_eq!(
     ///     conf,
     ///     Ok(Collection {
-    ///         name: String::from("wapo"),
+    ///         kind: WashingtonPostCollection::boxed(),
     ///         collection_dir: PathBuf::from("/path/to/wapo"),
     ///         forward_index: PathBuf::from("fwd/wapo"),
     ///         inverted_index: PathBuf::from("/absolute/path/to/inv/wapo"),
@@ -217,7 +245,7 @@ impl Collection {
                 let encodings = Self::parse_encodings(&encodings)
                     .context(format!("failed to parse collection {}", name))?;
                 Ok(Self {
-                    name: name.to_string(),
+                    kind: CollectionType::from(name)?,
                     collection_dir: PathBuf::from(collection_dir),
                     forward_index: PathBuf::from(
                         fwd.map_or_else(|| format!("fwd/{}", &name), String::from),
@@ -380,7 +408,7 @@ impl Config {
                 for collection in collections {
                     match self.parse_collection(&collection) {
                         Ok(coll_config) => {
-                            let name = coll_config.name.clone();
+                            let name = coll_config.kind.to_string();
                             let collrc = Rc::new(coll_config);
                             self.collections.push(Rc::clone(&collrc));
                             collection_map.insert(name, collrc);

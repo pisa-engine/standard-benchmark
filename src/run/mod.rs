@@ -13,7 +13,7 @@ use tempdir::TempDir;
 use yaml_rust::Yaml;
 
 /// Data for evaluation run.
-#[derive(PartialEq, Debug)]
+#[derive(Debug)]
 pub struct EvaluateData {
     /// Pointer to evalated collection
     pub collection: Rc<Collection>,
@@ -25,7 +25,7 @@ pub struct EvaluateData {
 }
 
 /// An experimental run.
-#[derive(PartialEq, Debug)]
+#[derive(Debug)]
 pub enum Run {
     /// Report selected precision metrics.
     Evaluate(EvaluateData),
@@ -53,7 +53,7 @@ impl Run {
     /// # extern crate yaml_rust;
     /// # extern crate stdbench;
     /// # use stdbench::run::Run;
-    /// # use stdbench::config::{Collection, CollectionMap, Encoding};
+    /// # use stdbench::config::*;
     /// # use std::collections::HashMap;
     /// # use std::path::PathBuf;
     /// # use std::rc::Rc;
@@ -68,14 +68,14 @@ impl Run {
     /// assert!(run.is_err());
     ///
     /// collections.insert(String::from("wapo"), Rc::new(Collection {
-    ///     name: String::from("wapo"),
+    ///     kind: WashingtonPostCollection::boxed(),
     ///     collection_dir: PathBuf::from("/coll/dir"),
     ///     forward_index: PathBuf::from("fwd"),
     ///     inverted_index: PathBuf::from("inv"),
     ///     encodings: vec![Encoding::from("block_simdbp")]
     /// }));
     /// let run = Run::parse(&yaml[0], &collections).unwrap();
-    /// assert_eq!(run.as_evaluate().unwrap().collection.name, "wapo");
+    /// assert_eq!(run.as_evaluate().unwrap().collection.kind.to_string(), "wapo");
     /// ```
     pub fn parse(yaml: &Yaml, collections: &CollectionMap) -> Result<Self, Error> {
         let collection_name = yaml.require_string("collection")?;
@@ -97,12 +97,12 @@ impl Run {
     /// # extern crate yaml_rust;
     /// # extern crate stdbench;
     /// # use stdbench::run::{EvaluateData, Run};
-    /// # use stdbench::config::{Collection, CollectionMap, Encoding};
+    /// # use stdbench::config::*;
     /// # use std::collections::HashMap;
     /// # use std::path::PathBuf;
     /// # use std::rc::Rc;
     /// let collection = Rc::new(Collection {
-    ///     name: String::from("wapo"),
+    ///     kind: WashingtonPostCollection::boxed(),
     ///     collection_dir: PathBuf::from("/coll/dir"),
     ///     forward_index: PathBuf::from("fwd"),
     ///     inverted_index: PathBuf::from("inv"),
