@@ -3,6 +3,7 @@ extern crate yaml_rust;
 
 use super::*;
 use crate::run::EvaluateData;
+use crate::tests::*;
 use tempdir::TempDir;
 use yaml_rust::YamlLoader;
 
@@ -207,4 +208,43 @@ fn test_yaml_ext() {
     let yaml = YamlLoader::load_from_str("name: wapo").unwrap();
     assert_eq!(yaml[0].require_string("name"), Ok("wapo"));
     assert!(yaml[0].require_string("unknown").is_err());
+}
+
+#[test]
+fn test_parse_command_trecweb() -> Result<(), Error> {
+    let tmp = TempDir::new("config")?;
+    let setup = mock_set_up(&tmp);
+    let cmd = TrecWebCollection::boxed()
+        .parse_command(setup.executor.as_ref(), &setup.config.collections[1])?;
+    assert_eq!(
+        cmd.to_string(),
+        format!(
+            "cat \
+             {0}/gov2/GX000/00.gz {0}/gov2/GX000/01.gz \
+             {0}/gov2/GX001/02.gz {0}/gov2/GX001/03.gz\
+             \n    | {0}/parse_collection -o {}/gov2/fwd -f trecweb \
+             --stemmer porter2 --content-parser html --batch-size 1000",
+            tmp.path().display()
+        )
+    );
+    Ok(())
+}
+
+#[test]
+fn test_colection_type_from_str() {
+    assert!(CollectionType::from("wapo")
+        .unwrap()
+        .downcast_ref::<WashingtonPostCollection>()
+        .is_some(),);
+    assert!(CollectionType::from("trecweb")
+        .unwrap()
+        .downcast_ref::<TrecWebCollection>()
+        .is_some(),);
+    assert!(CollectionType::from("unknown").is_err());
+}
+
+#[test]
+fn test_colection_type_to_str() {
+    assert_eq!(WashingtonPostCollection::boxed().to_string(), "wapo");
+    assert_eq!(TrecWebCollection::boxed().to_string(), "trecweb");
 }

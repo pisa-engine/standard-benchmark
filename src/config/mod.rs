@@ -99,19 +99,17 @@ impl CollectionType {
     /// extern crate downcast_rs;
     /// # use stdbench::config::*;
     /// use downcast_rs::Downcast;
-    /// assert!(
-    ///     CollectionType::from("wapo")
-    ///         .unwrap()
-    ///         .downcast_ref::<WashingtonPostCollection>()
-    ///         .is_some(),
-    /// );
+    /// assert!(CollectionType::from("wapo").is_ok());
+    /// assert!(CollectionType::from("trecweb").is_ok());
+    /// assert!(CollectionType::from("unknown").is_err());
     /// ```
     pub fn from<S>(name: S) -> Result<Box<dyn CollectionType>, Error>
     where
         S: AsRef<str>,
     {
         match name.as_ref() {
-            "wapo" => Ok(Box::new(WashingtonPostCollection {})),
+            "wapo" => Ok(WashingtonPostCollection::boxed()),
+            "trecweb" => Ok(TrecWebCollection::boxed()),
             _ => Err(Error::from(format!(
                 "Unknown collection type: {}",
                 name.as_ref()
@@ -120,8 +118,57 @@ impl CollectionType {
     }
 }
 
+fn resolve_files<P: AsRef<Path>>(path: P) -> Result<Vec<PathBuf>, Error> {
+    let pattern = path.as_ref().to_str().unwrap();
+    let files: Vec<_> = glob(pattern).unwrap().filter_map(Result::ok).collect();
+    (!files.is_empty()).ok_or(format!(
+        "could not resolve any files for pattern: {}",
+        pattern
+    ))?;
+    Ok(files)
+}
+
+/// This is a collection such as Gov2.
+#[derive(Debug)]
+pub struct TrecWebCollection;
+impl TrecWebCollection {
+    /// Returns the object wrapped in `Box`.
+    pub fn boxed() -> Box<Self> {
+        Box::new(Self {})
+    }
+}
+impl fmt::Display for TrecWebCollection {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "trecweb")
+    }
+}
+impl CollectionType for TrecWebCollection {
+    fn parse_command(
+        &self,
+        executor: &dyn PisaExecutor,
+        collection: &Collection,
+    ) -> Result<ExtCommand, Error> {
+        let input_files = resolve_files(collection.collection_dir.join("GX*/*.gz"))?;
+        Ok(ExtCommand::new("cat")
+            .args(&input_files)
+            .pipe_command(executor.command("parse_collection"))
+            .args(&[
+                "-o",
+                collection.forward_index.to_str().unwrap(),
+                "-f",
+                "trecweb",
+                "--stemmer",
+                "porter2",
+                "--content-parser",
+                "html",
+                "--batch-size",
+                "1000",
+            ]))
+    }
+}
+
 /// WashingtonPost.v2 collection type: [](https://trec.nist.gov/data/wapost)
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub struct WashingtonPostCollection;
 impl WashingtonPostCollection {
     /// Returns the object wrapped in `Box`.
@@ -129,7 +176,6 @@ impl WashingtonPostCollection {
         Box::new(Self {})
     }
 }
-
 impl fmt::Display for WashingtonPostCollection {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "wapo")
@@ -141,13 +187,7 @@ impl CollectionType for WashingtonPostCollection {
         executor: &dyn PisaExecutor,
         collection: &Collection,
     ) -> Result<ExtCommand, Error> {
-        let input_path = collection.collection_dir.join("data/*.jl");
-        let input = input_path.to_str().unwrap();
-        let input_files: Vec<_> = glob(input).unwrap().filter_map(Result::ok).collect();
-        (!input_files.is_empty()).ok_or(format!(
-            "could not resolve any files for pattern: {}",
-            input
-        ))?;
+        let input_files = resolve_files(collection.collection_dir.join("data/*.jl"))?;
         Ok(ExtCommand::new("cat")
             .args(&input_files)
             .pipe_command(executor.command("parse_collection"))

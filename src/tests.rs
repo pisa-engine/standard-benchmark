@@ -41,8 +41,15 @@ pub(crate) fn mock_set_up(tmp: &TempDir) -> MockSetup {
         inverted_index: tmp.path().join("inv"),
         encodings: vec!["block_simdbp".into(), "block_qmx".into()],
     }));
+    config.collections.push(Rc::new(Collection {
+        kind: TrecWebCollection::boxed(),
+        collection_dir: tmp.path().join("gov2"),
+        forward_index: tmp.path().join("gov2/fwd"),
+        inverted_index: tmp.path().join("gov2/inv"),
+        encodings: vec!["block_simdbp".into(), "block_qmx".into()],
+    }));
     config.runs.push(Run::Evaluate(EvaluateData {
-        collection: Rc::clone(config.collections.last().unwrap()),
+        collection: Rc::clone(&config.collections[0]),
         topics: PathBuf::from("topics"),
         qrels: PathBuf::from("qrels"),
     }));
@@ -51,6 +58,16 @@ pub(crate) fn mock_set_up(tmp: &TempDir) -> MockSetup {
     create_dir_all(&data_dir).unwrap();
     std::fs::File::create(data_dir.join("f.jl")).unwrap();
     let executor = config.executor().unwrap();
+
+    let gov2_dir = tmp.path().join("gov2");
+    let gov2_0_dir = gov2_dir.join("GX000");
+    let gov2_1_dir = gov2_dir.join("GX001");
+    create_dir_all(&gov2_0_dir).unwrap();
+    create_dir_all(&gov2_1_dir).unwrap();
+    std::fs::File::create(gov2_0_dir.join("00.gz")).unwrap();
+    std::fs::File::create(gov2_0_dir.join("01.gz")).unwrap();
+    std::fs::File::create(gov2_1_dir.join("02.gz")).unwrap();
+    std::fs::File::create(gov2_1_dir.join("03.gz")).unwrap();
 
     let mut mock_setup = MockSetup {
         config,
