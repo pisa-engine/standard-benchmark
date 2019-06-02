@@ -49,6 +49,7 @@ fn test_parse_collection() {
     let yaml = yaml_rust::YamlLoader::load_from_str(
         "
         name: wapo
+        kind: wapo
         collection_dir: /path/to/wapo
         forward_index: fwd/wapo
         inverted_index: /absolute/path/to/inv/wapo
@@ -71,13 +72,14 @@ fn test_parse_collection_missing_coll_dir() {
     let yaml = yaml_rust::YamlLoader::load_from_str(
         "
         name: wapo
+        kind: wapo
         forward_index: fwd/wapo
         inverted_index: /absolute/path/to/inv/wapo",
     )
     .unwrap();
     assert_eq!(
         test_conf().parse_collection(&yaml[0]).err(),
-        Some("undefined collection_dir".into())
+        Some("field collection_dir missing or not string".into())
     );
 }
 
@@ -86,6 +88,7 @@ fn test_parse_collection_missing_encodings() {
     let yaml = yaml_rust::YamlLoader::load_from_str(
         "
         name: wapo
+        kind: wapo
         collection_dir: dir
         forward_index: fwd/wapo
         inverted_index: /absolute/path/to/inv/wapo",
@@ -109,6 +112,7 @@ source:
     url: https://github.com/pisa-engine/pisa.git
 collections:
     - name: wapo
+      kind: wapo
       collection_dir: /collections/wapo
       forward_index: fwd/wapo
       inverted_index: inv/wapo
@@ -132,6 +136,7 @@ runs:
     assert_eq!(
         conf.collections[0].as_ref(),
         &Collection {
+            name: "wapo".to_string(),
             kind: WashingtonPostCollection::boxed(),
             collection_dir: PathBuf::from("/collections/wapo"),
             forward_index: PathBuf::from("/tmp/fwd/wapo"),
@@ -219,7 +224,7 @@ fn test_parse_command_trecweb() -> Result<(), Error> {
     assert_eq!(
         cmd.to_string(),
         format!(
-            "cat \
+            "zcat \
              {0}/gov2/GX000/00.gz {0}/gov2/GX000/01.gz \
              {0}/gov2/GX001/02.gz {0}/gov2/GX001/03.gz\
              \n    | {0}/parse_collection -o {}/gov2/fwd -f trecweb \

@@ -162,6 +162,7 @@ source:
     url: https://github.com/pisa-engine/pisa.git
 collections:
     - name: wapo
+      kind: wapo
       description: WashingtonPost.v2
       collection_dir: coll
       forward_index: fwd/wapo

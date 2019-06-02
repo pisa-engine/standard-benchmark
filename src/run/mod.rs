@@ -68,6 +68,7 @@ impl Run {
     /// assert!(run.is_err());
     ///
     /// collections.insert(String::from("wapo"), Rc::new(Collection {
+    ///     name: "wapo".to_string(),
     ///     kind: WashingtonPostCollection::boxed(),
     ///     collection_dir: PathBuf::from("/coll/dir"),
     ///     forward_index: PathBuf::from("fwd"),
@@ -102,6 +103,7 @@ impl Run {
     /// # use std::path::PathBuf;
     /// # use std::rc::Rc;
     /// let collection = Rc::new(Collection {
+    ///     name: "wapo".to_string(),
     ///     kind: WashingtonPostCollection::boxed(),
     ///     collection_dir: PathBuf::from("/coll/dir"),
     ///     forward_index: PathBuf::from("fwd"),

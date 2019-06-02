@@ -67,6 +67,7 @@ fn test_unknown_run_type() {
     collections.insert(
         String::from("wapo"),
         Rc::new(Collection {
+            name: "wapo".to_string(),
             kind: WashingtonPostCollection::boxed(),
             collection_dir: PathBuf::from("/coll/dir"),
             forward_index: PathBuf::from("fwd"),

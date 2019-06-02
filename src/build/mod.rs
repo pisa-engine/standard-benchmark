@@ -53,8 +53,11 @@ pub fn collection(
     config: &Config,
 ) -> Result<Vec<Stage>, Error> {
     let mut stages_run: Vec<Stage> = Vec::new();
-    info!("Processing collection: {}", collection.kind);
-    let name = &collection.kind.to_string();
+    info!(
+        "Processing collection: {}/{}",
+        collection.name, collection.kind
+    );
+    let name = &collection.name;
     if config.is_suppressed(Stage::BuildIndex) {
         warn!("[{}] [build] Suppressed", name);
     } else {

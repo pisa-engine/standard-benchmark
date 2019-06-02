@@ -124,6 +124,7 @@ fn test_parse_wapo_command() {
     File::create(&data_file).unwrap();
     let executor = SystemPathExecutor::new();
     let cconf = Collection {
+        name: "wapo".to_string(),
         kind: WashingtonPostCollection::boxed(),
         collection_dir: tmp.path().to_path_buf(),
         forward_index: PathBuf::from("fwd"),

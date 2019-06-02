@@ -35,6 +35,7 @@ fn mock_program(tmp: &TempDir, setup: &mut MockSetup, program: &'static str) {
 pub(crate) fn mock_set_up(tmp: &TempDir) -> MockSetup {
     let mut config = Config::new(tmp.path(), Box::new(CustomPathSource::from(tmp.path())));
     config.collections.push(Rc::new(Collection {
+        name: "wapo".to_string(),
         kind: WashingtonPostCollection::boxed(),
         collection_dir: tmp.path().join("coll"),
         forward_index: tmp.path().join("fwd"),
@@ -42,6 +43,7 @@ pub(crate) fn mock_set_up(tmp: &TempDir) -> MockSetup {
         encodings: vec!["block_simdbp".into(), "block_qmx".into()],
     }));
     config.collections.push(Rc::new(Collection {
+        name: "gov2".to_string(),
         kind: TrecWebCollection::boxed(),
         collection_dir: tmp.path().join("gov2"),
         forward_index: tmp.path().join("gov2/fwd"),

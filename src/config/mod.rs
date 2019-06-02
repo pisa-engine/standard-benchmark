@@ -149,7 +149,7 @@ impl CollectionType for TrecWebCollection {
         collection: &Collection,
     ) -> Result<ExtCommand, Error> {
         let input_files = resolve_files(collection.collection_dir.join("GX*/*.gz"))?;
-        Ok(ExtCommand::new("cat")
+        Ok(ExtCommand::new("zcat")
             .args(&input_files)
             .pipe_command(executor.command("parse_collection"))
             .args(&[
@@ -209,7 +209,9 @@ impl CollectionType for WashingtonPostCollection {
 /// Configuration of a tested collection.
 #[derive(Debug)]
 pub struct Collection {
-    /// A collection name used also as a type when deciding on how to parse it.
+    /// A collection name.
+    pub name: String,
+    /// The colleciton's type used when deciding on how to parse it.
     pub kind: Box<dyn CollectionType>,
     /// The root directory of the collection. Depending on a type, it could
     /// contain one or many files or directories. Must use `name` to determine
@@ -254,6 +256,7 @@ impl Collection {
     /// # use std::path::PathBuf;
     /// let yaml = yaml_rust::YamlLoader::load_from_str("
     /// name: wapo
+    /// kind: wapo
     /// collection_dir: /path/to/wapo
     /// forward_index: fwd/wapo
     /// inverted_index: /absolute/path/to/inv/wapo
@@ -263,6 +266,7 @@ impl Collection {
     /// assert_eq!(
     ///     conf,
     ///     Ok(Collection {
+    ///         name: "wapo".to_string(),
     ///         kind: WashingtonPostCollection::boxed(),
     ///         collection_dir: PathBuf::from("/path/to/wapo"),
     ///         forward_index: PathBuf::from("fwd/wapo"),
@@ -272,31 +276,25 @@ impl Collection {
     /// ));
     /// ```
     pub fn from_yaml(yaml: &Yaml) -> Result<Self, Error> {
-        match (
-            yaml["name"].as_str(),
-            yaml["collection_dir"].as_str(),
-            yaml["forward_index"].as_str(),
-            yaml["inverted_index"].as_str(),
-            &yaml["encodings"],
-        ) {
-            (None, _, _, _, _) => Err("undefined name".into()),
-            (_, None, _, _, _) => Err("undefined collection_dir".into()),
-            (Some(name), Some(collection_dir), fwd, inv, encodings) => {
-                let encodings = Self::parse_encodings(&encodings)
-                    .context(format!("failed to parse collection {}", name))?;
-                Ok(Self {
-                    kind: CollectionType::from(name)?,
-                    collection_dir: PathBuf::from(collection_dir),
-                    forward_index: PathBuf::from(
-                        fwd.map_or_else(|| format!("fwd/{}", &name), String::from),
-                    ),
-                    inverted_index: PathBuf::from(
-                        inv.map_or_else(|| format!("inv/{}", &name), String::from),
-                    ),
-                    encodings,
-                })
-            }
-        }
+        let name = yaml.require_string("name")?;
+        let kind = yaml.require_string("kind")?;
+        let collection_dir = yaml.require_string("collection_dir")?;
+        let fwd = yaml["forward_index"].as_str();
+        let inv = yaml["inverted_index"].as_str();
+        let encodings = Self::parse_encodings(&yaml["encodings"])
+            .context(format!("failed to parse collection {}", name))?;
+        Ok(Self {
+            name: name.to_string(),
+            kind: CollectionType::from(kind)?,
+            collection_dir: PathBuf::from(collection_dir),
+            forward_index: PathBuf::from(
+                fwd.map_or_else(|| format!("fwd/{}", &name), String::from),
+            ),
+            inverted_index: PathBuf::from(
+                inv.map_or_else(|| format!("inv/{}", &name), String::from),
+            ),
+            encodings,
+        })
     }
 
     /// Returns a string representing forward index path.
@@ -448,7 +446,7 @@ impl Config {
                 for collection in collections {
                     match self.parse_collection(&collection) {
                         Ok(coll_config) => {
-                            let name = coll_config.kind.to_string();
+                            let name = coll_config.name.clone();
                             let collrc = Rc::new(coll_config);
                             self.collections.push(Rc::clone(&collrc));
                             collection_map.insert(name, collrc);
