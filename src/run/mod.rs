@@ -266,7 +266,7 @@ pub fn process_run(executor: &dyn PisaExecutor, run: &Run) -> Result<(), Error> 
                 .output()?;
             let eval_result =
                 String::from_utf8(output.stdout).context("unable to parse result of trec_eval")?;
-            //fs::write();
+            fs::write(&eval.output_file, eval_result)?;
             Ok(())
         }
         Benchmark => {
