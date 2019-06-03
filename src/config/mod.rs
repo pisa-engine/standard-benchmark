@@ -110,6 +110,7 @@ impl CollectionType {
         match name.as_ref() {
             "wapo" => Ok(WashingtonPostCollection::boxed()),
             "trecweb" => Ok(TrecWebCollection::boxed()),
+            "warc" => Ok(WarcCollection::boxed()),
             _ => Err(Error::from(format!(
                 "Unknown collection type: {}",
                 name.as_ref()
@@ -164,6 +165,38 @@ impl CollectionType for TrecWebCollection {
                 "--batch-size",
                 "1000",
             ]))
+    }
+}
+
+/// This is a collection such as Gov2.
+#[derive(Debug)]
+pub struct WarcCollection;
+impl WarcCollection {
+    /// Returns the object wrapped in `Box`.
+    pub fn boxed() -> Box<Self> {
+        Box::new(Self {})
+    }
+}
+impl fmt::Display for WarcCollection {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "warc")
+    }
+}
+impl CollectionType for WarcCollection {
+    fn parse_command(
+        &self,
+        executor: &dyn PisaExecutor,
+        collection: &Collection,
+    ) -> Result<ExtCommand, Error> {
+        let input_files = resolve_files(collection.collection_dir.join("en*/*.gz"))?;
+        Ok(ExtCommand::new("zcat")
+            .args(&input_files)
+            .pipe_command(executor.command("parse_collection"))
+            .args(&["-o", collection.forward_index.to_str().unwrap()])
+            .args(&["-f", "warc"])
+            .args(&["--stemmer", "porter2"])
+            .args(&["--content-parser", "html"])
+            .args(&["--batch-size", "1000"]))
     }
 }
 

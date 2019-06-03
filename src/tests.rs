@@ -50,6 +50,14 @@ pub(crate) fn mock_set_up(tmp: &TempDir) -> MockSetup {
         inverted_index: tmp.path().join("gov2/inv"),
         encodings: vec!["block_simdbp".into(), "block_qmx".into()],
     }));
+    config.collections.push(Rc::new(Collection {
+        name: "cw09b".to_string(),
+        kind: WarcCollection::boxed(),
+        collection_dir: tmp.path().join("cw09b"),
+        forward_index: tmp.path().join("cw09b/fwd"),
+        inverted_index: tmp.path().join("cw09b/inv"),
+        encodings: vec!["block_simdbp".into(), "block_qmx".into()],
+    }));
     config.runs.push(Run {
         collection: Rc::clone(&config.collections[0]),
         data: RunData::Evaluate(EvaluateData {
@@ -74,6 +82,16 @@ pub(crate) fn mock_set_up(tmp: &TempDir) -> MockSetup {
     std::fs::File::create(gov2_0_dir.join("01.gz")).unwrap();
     std::fs::File::create(gov2_1_dir.join("02.gz")).unwrap();
     std::fs::File::create(gov2_1_dir.join("03.gz")).unwrap();
+
+    let cw_dir = tmp.path().join("cw09b");
+    let cw_0_dir = cw_dir.join("en0000");
+    let cw_1_dir = cw_dir.join("en0001");
+    create_dir_all(&cw_0_dir).unwrap();
+    create_dir_all(&cw_1_dir).unwrap();
+    std::fs::File::create(cw_0_dir.join("00.warc.gz")).unwrap();
+    std::fs::File::create(cw_0_dir.join("01.warc.gz")).unwrap();
+    std::fs::File::create(cw_1_dir.join("02.warc.gz")).unwrap();
+    std::fs::File::create(cw_1_dir.join("03.warc.gz")).unwrap();
 
     let mut mock_setup = MockSetup {
         config,

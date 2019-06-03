@@ -240,6 +240,26 @@ fn test_parse_command_trecweb() -> Result<(), Error> {
 }
 
 #[test]
+fn test_parse_command_warc() -> Result<(), Error> {
+    let tmp = TempDir::new("config")?;
+    let setup = mock_set_up(&tmp);
+    let cmd = WarcCollection::boxed()
+        .parse_command(setup.executor.as_ref(), &setup.config.collections[2])?;
+    assert_eq!(
+        cmd.to_string(),
+        format!(
+            "zcat \
+             {0}/cw09b/en0000/00.warc.gz {0}/cw09b/en0000/01.warc.gz \
+             {0}/cw09b/en0001/02.warc.gz {0}/cw09b/en0001/03.warc.gz\
+             \n    | {0}/parse_collection -o {}/cw09b/fwd -f warc \
+             --stemmer porter2 --content-parser html --batch-size 1000",
+            tmp.path().display()
+        )
+    );
+    Ok(())
+}
+
+#[test]
 fn test_colection_type_from_str() {
     assert!(CollectionType::from("wapo")
         .unwrap()
