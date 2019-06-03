@@ -119,7 +119,7 @@ impl CollectionType {
     }
 }
 
-fn resolve_files<P: AsRef<Path>>(path: P) -> Result<Vec<PathBuf>, Error> {
+pub(crate) fn resolve_files<P: AsRef<Path>>(path: P) -> Result<Vec<PathBuf>, Error> {
     let pattern = path.as_ref().to_str().unwrap();
     let files: Vec<_> = glob(pattern).unwrap().filter_map(Result::ok).collect();
     (!files.is_empty()).ok_or(format!(

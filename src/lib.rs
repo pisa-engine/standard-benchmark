@@ -63,6 +63,10 @@ pub enum Stage {
     /// forward index has been already built (e.g., in a previous run).
     #[strum(serialize = "parse")]
     ParseCollection,
+    /// A subset of `ParseCollection`; means: use `parse_collection` with
+    /// `merge` subcommand to only merge previously produced batch files.
+    #[strum(serialize = "parse-batches")]
+    ParseBatches,
     /// Inverting stage; mean: compress an inverted index but do not invert forward
     /// index, assuming it has been done already.
     #[strum(serialize = "invert")]
