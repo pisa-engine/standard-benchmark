@@ -430,7 +430,8 @@ impl Config {
         match runs {
             Yaml::Array(runs) => {
                 for run in runs {
-                    self.runs.push(Run::parse(&run, collections)?);
+                    self.runs
+                        .push(Run::parse(&run, collections, &self.workdir)?);
                 }
                 Ok(())
             }

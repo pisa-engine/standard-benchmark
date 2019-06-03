@@ -4,7 +4,8 @@ extern crate boolinator;
 extern crate downcast_rs;
 extern crate failure;
 
-use crate::config::Encoding;
+use crate::config::{Collection, Encoding};
+use crate::run::EvaluateData;
 use crate::*;
 use boolinator::Boolinator;
 use downcast_rs::Downcast;
@@ -148,50 +149,35 @@ impl dyn PisaExecutor {
     }
 
     /// Runs `evaluate_queries` command.
-    pub fn evaluate_queries<P1, P2, P3>(
+    pub fn evaluate_queries<S>(
         &self,
-        inverted_index: P1,
-        forward_index: P2,
-        encoding: &Encoding,
-        queries: P3,
+        collection: &Collection,
+        _run_data: &EvaluateData, // To be used in the future
+        queries: S,
     ) -> Result<String, Error>
     where
-        P1: AsRef<Path>,
-        P2: AsRef<Path>,
-        P3: AsRef<Path>,
+        S: AsRef<str>,
     {
-        let inv = inverted_index
-            .as_ref()
+        let inv = collection
+            .inverted_index
             .to_str()
             .ok_or("Failed to parse inverted index path")?;
-        let queries = queries
-            .as_ref()
-            .to_str()
-            .ok_or("Failed to parse queries path")?;
-        let fwd = forward_index
-            .as_ref()
+        let fwd = collection
+            .forward_index
             .to_str()
             .ok_or("Failed to parse forward index path")?;
+        let encoding = &collection.encodings.first().unwrap();
         let output = self
             .command("evaluate_queries")
-            .args(&[
-                "-t",
-                encoding.as_ref(),
-                "-i",
-                &format!("{}.{}", inv, encoding),
-                "-w",
-                &format!("{}.wand", inv),
-                "-a",
-                "wand",
-                "-q",
-                queries,
-                "--terms",
-                &format!("{}.termmap", fwd),
-                "--documents",
-                &format!("{}.docmap", fwd),
-                "--stemmer",
-                "porter2",
-            ])
+            .args(&["-t", encoding.as_ref()])
+            .args(&["-i", &format!("{}.{}", inv, encoding)])
+            .args(&["-w", &format!("{}.wand", inv)])
+            .args(&["-a", "wand"])
+            .args(&["-q", queries.as_ref()])
+            .args(&["--terms", &format!("{}.termmap", fwd)])
+            .args(&["--documents", &format!("{}.docmap", fwd)])
+            .args(&["--stemmer", "porter2"])
+            .args(&["-k", "1000"])
             .output()
             .context("Failed to run evaluate_queries")?;
         if output.status.success() {

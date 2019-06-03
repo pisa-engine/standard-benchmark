@@ -1,7 +1,7 @@
 extern crate tempdir;
 extern crate yaml_rust;
 
-use super::{evaluate, Run};
+use super::{evaluate, Run, RunData, TopicsFormat, TrecTopicField};
 use crate::config::{Collection, CollectionMap, Encoding, WashingtonPostCollection};
 use crate::error::Error;
 use crate::tests::{mock_set_up, MockSetup};
@@ -22,18 +22,13 @@ fn test_evaluate() {
         outputs,
         term_count: _,
     } = mock_set_up(&tmp);
-    evaluate(
-        executor.as_ref(),
-        config.runs.first().unwrap(),
-        &Encoding::from("block_simdbp"),
-    )
-    .unwrap();
+    evaluate(executor.as_ref(), config.runs.first().unwrap()).unwrap();
     assert_eq!(
         std::fs::read_to_string(outputs.get("evaluate_queries").unwrap()).unwrap(),
         format!(
             "{0} -t block_simdbp -i {2}.block_simdbp -w {2}.wand -a wand \
              -q topics.title --terms {1}.termmap --documents {1}.docmap \
-             --stemmer porter2",
+             --stemmer porter2 -k 1000",
             programs.get("evaluate_queries").unwrap().display(),
             tmp.path().join("fwd").display(),
             tmp.path().join("inv").display(),
@@ -46,7 +41,7 @@ fn test_evaluate() {
 fn test_evaluate_wrong_type() {
     let tmp = TempDir::new("build").unwrap();
     let MockSetup {
-        config: _,
+        config,
         executor,
         programs: _,
         outputs: _,
@@ -54,8 +49,10 @@ fn test_evaluate_wrong_type() {
     } = mock_set_up(&tmp);
     assert!(evaluate(
         executor.as_ref(),
-        &Run::Benchmark,
-        &Encoding::from("block_simdbp"),
+        &Run {
+            collection: Rc::clone(&config.collections[0]),
+            data: RunData::Benchmark
+        },
     )
     .is_err());
 }
@@ -76,7 +73,63 @@ fn test_unknown_run_type() {
         }),
     );
     assert_eq!(
-        Run::parse(&yaml[0], &collections).err(),
+        Run::parse(&yaml[0], &collections, PathBuf::from("workdir")).err(),
         Some(Error::from("unknown run type: unknown"))
     );
+}
+
+#[test]
+fn test_parse_topics_format() -> Result<(), Error> {
+    let yaml = YamlLoader::load_from_str("topics: /topics").unwrap();
+    assert_eq!(Run::parse_topics_format(&yaml[0])?, None);
+
+    let yaml = YamlLoader::load_from_str("topics_format: simple").unwrap();
+    assert_eq!(
+        Run::parse_topics_format(&yaml[0])?,
+        Some(TopicsFormat::Simple)
+    );
+
+    let yaml = YamlLoader::load_from_str("topics_format: trec").unwrap();
+    assert_eq!(
+        Run::parse_topics_format(&yaml[0]).err(),
+        Some(Error::from("field trec_topic_field missing or not string"))
+    );
+
+    let yaml = YamlLoader::load_from_str(
+        "topics_format: trec
+trec_topic_field: xxx",
+    )
+    .unwrap();
+    assert!(Run::parse_topics_format(&yaml[0]).is_err());
+
+    let yaml = YamlLoader::load_from_str(
+        "topics_format: trec
+trec_topic_field: title",
+    )
+    .unwrap();
+    assert_eq!(
+        Run::parse_topics_format(&yaml[0])?,
+        Some(TopicsFormat::Trec(TrecTopicField::Title))
+    );
+
+    let yaml = YamlLoader::load_from_str(
+        "topics_format: trec
+trec_topic_field: desc",
+    )
+    .unwrap();
+    assert_eq!(
+        Run::parse_topics_format(&yaml[0])?,
+        Some(TopicsFormat::Trec(TrecTopicField::Description))
+    );
+
+    let yaml = YamlLoader::load_from_str(
+        "topics_format: trec
+trec_topic_field: narr",
+    )
+    .unwrap();
+    assert_eq!(
+        Run::parse_topics_format(&yaml[0])?,
+        Some(TopicsFormat::Trec(TrecTopicField::Narrative))
+    );
+    Ok(())
 }

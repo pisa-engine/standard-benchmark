@@ -67,6 +67,19 @@ fn test_piped_commands() -> Result<(), Error> {
         ),
         Ok("1\n")
     );
+    assert_eq!(
+        std::str::from_utf8(
+            &ExtCommand::new("echo")
+                .arg("hello")
+                .pipe_new("wc")
+                .arg("-l")
+                .pipe_command(Command::new("grep"))
+                .arg("1")
+                .output()?
+                .stdout
+        ),
+        Ok("1\n")
+    );
     assert!(ExtCommand::new("echo")
         .arg("hello")
         .pipe_new("wc")

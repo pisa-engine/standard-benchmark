@@ -203,7 +203,7 @@ fn test_process_run() {
     } = mock_set_up(&tmp);
     let run = &config.runs[0];
     process_run(executor.as_ref(), run).unwrap();
-    let eval = run.as_evaluate().unwrap();
+    let eval = run.data.as_evaluate().unwrap();
     assert_eq!(
         std::fs::read_to_string(outputs.get("extract_topics").unwrap()).unwrap(),
         format!(
@@ -216,10 +216,10 @@ fn test_process_run() {
         std::fs::read_to_string(outputs.get("evaluate_queries").unwrap()).unwrap(),
         format!(
             "{0} -t block_simdbp -i {1}.block_simdbp -w {1}.wand -a wand -q {3}.title \
-             --terms {2}.termmap --documents {2}.docmap --stemmer porter2",
+             --terms {2}.termmap --documents {2}.docmap --stemmer porter2 -k 1000",
             programs.get("evaluate_queries").unwrap().display(),
-            eval.collection.inv().unwrap(),
-            eval.collection.fwd().unwrap(),
+            run.collection.inv().unwrap(),
+            run.collection.fwd().unwrap(),
             eval.topics.display()
         )
     );

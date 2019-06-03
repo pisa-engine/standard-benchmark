@@ -12,7 +12,7 @@ use std::process;
 use stdbench::build;
 use stdbench::config::Config;
 use stdbench::error::Error;
-use stdbench::run::{process_run, Run};
+use stdbench::run::process_run;
 use strum::IntoEnumIterator;
 
 pub fn app<'a, 'b>() -> App<'a, 'b> {
@@ -64,14 +64,7 @@ where
     config.runs = config
         .runs
         .iter()
-        .filter(|r| {
-            if let Run::Evaluate(run) = r {
-                let name = run.collection.kind.to_string();
-                colset.contains(&name.as_ref())
-            } else {
-                false
-            }
-        })
+        .filter(|r| colset.contains(&r.collection.name.as_ref()))
         .cloned()
         .collect();
 }
