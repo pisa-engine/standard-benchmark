@@ -12,12 +12,14 @@
         -V, --version         Prints version information
 
     OPTIONS:
-            --config-file <config-file>    Configuration file path
-            --suppress <suppress>...       A list of stages to suppress
+            --collections <collections>...    Filter out collections you want to run
+            --config-file <config-file>       Configuration file path
+            --suppress <suppress>...          A list of stages to suppress
 
 The main settings are read from the configuration file.
 Additionally, we can suppress certain stages with `--suppress` option.
 Run with `--print-stages` to see all available stages.
+In order to run only a subset of collections, use `--collections` option.
 
 # Configuration File
 
@@ -71,7 +73,8 @@ source:
 ## Collections
 
 This is a list of all collections to be tested. Each collection has:
-- `name` (or type)
+- `name` -- for identification and cross-referrencing from runs
+- `kind` -- a type of collection, e.g., `trecweb` or `warc`
 - `collection_dir` -- where the collection is stored
 - `forward_index` -- the basename of the forward index (optional; default=`workdir`/fwd/`name`)
 - `inverted_index` -- the basename of the inverted index (optional; default=`workdir`/inv/`name`)
@@ -93,13 +96,29 @@ collections:
 
 Runs are experiments to run on the collections, once they are indexed.
 
-**Note:** At this point, only evaluating queries is supported, and the
-output of `trec_eval` will be printed on the standard output.
+**Note:** At this point, only evaluating queries is supported.
 
 ```yaml
 runs:
     - collection: wapo
       type: evaluate
       topics: /data/collections/WashingtonPost.v2/topics.core18.txt
+      topics_format: trec
+      trec_topic_field
       qrels: /data/collections/WashingtonPost.v2/qrels.core18.txt
+```
+
+```yaml
+runs:
+    - collection: wapo
+      type: evaluate
+      topics: /data/collections/WashingtonPost.v2/topics.core18.txt
+      topics_format: simple
+      qrels: /data/collections/WashingtonPost.v2/qrels.core18.txt
+```
+
+`simple` format is one query per line with ID before a colon:
+```
+1:first query
+2:second query
 ```
