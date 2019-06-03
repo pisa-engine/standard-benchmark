@@ -1,13 +1,11 @@
 extern crate clap;
-extern crate experiment;
-extern crate git2;
-extern crate json;
 extern crate stdbench;
 extern crate stderrlog;
 extern crate tempdir;
 
 use clap::{App, Arg};
 use log::{error, info, warn};
+use std::collections::HashSet;
 use std::env;
 use std::path::PathBuf;
 use std::process;
@@ -40,6 +38,35 @@ pub fn app<'a, 'b>() -> App<'a, 'b> {
                 .multiple(true)
                 .takes_value(true),
         )
+        .arg(
+            Arg::with_name("collections")
+                .help("Filter out collections you want to run")
+                .long("collections")
+                .multiple(true)
+                .takes_value(true),
+        )
+}
+
+fn filter_collections<'a, I>(mut config: &mut Config, collections: I)
+where
+    I: IntoIterator<Item = &'a str>,
+{
+    let colset = collections.into_iter().collect::<HashSet<&str>>();
+    config.collections = config
+        .collections
+        .iter()
+        .filter(|c| {
+            let name = c.kind.to_string();
+            colset.contains(&name.as_ref())
+        })
+        .cloned()
+        .collect();
+    config.runs = config
+        .runs
+        .iter()
+        .filter(|r| colset.contains(&r.collection.name.as_ref()))
+        .cloned()
+        .collect();
 }
 
 fn parse_config(args: Vec<String>) -> Result<Config, Error> {
@@ -63,6 +90,9 @@ fn parse_config(args: Vec<String>) -> Result<Config, Error> {
                 warn!("Requested suppression of stage `{}` that is invalid", name);
             }
         }
+    }
+    if let Some(collections) = matches.values_of("collections") {
+        filter_collections(&mut config, collections);
     }
     Ok(config)
 }
@@ -125,6 +155,7 @@ source:
     url: https://github.com/pisa-engine/pisa.git
 collections:
     - name: wapo
+      kind: wapo
       description: WashingtonPost.v2
       collection_dir: coll
       forward_index: fwd/wapo

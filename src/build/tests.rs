@@ -124,33 +124,20 @@ fn test_parse_wapo_command() {
     File::create(&data_file).unwrap();
     let executor = SystemPathExecutor::new();
     let cconf = Collection {
-        name: String::from("wapo"),
+        name: "wapo".to_string(),
+        kind: WashingtonPostCollection::boxed(),
         collection_dir: tmp.path().to_path_buf(),
         forward_index: PathBuf::from("fwd"),
         inverted_index: PathBuf::from("inv"),
         encodings: vec![],
     };
     let expected = format!(
-        "cat {}\n\t| parse_collection -o fwd \
+        "cat {}\n    | parse_collection -o fwd \
          -f wapo --stemmer porter2 --content-parser html --batch-size 1000",
         data_file.to_str().unwrap()
     );
     assert_eq!(
-        format!(
-            "{}",
-            parse_wapo_command(&executor, &cconf)
-                .unwrap()
-                .display(Verbosity::Verbose)
-        ),
-        expected
-    );
-    assert_eq!(
-        format!(
-            "{}",
-            parse_command(&executor, &cconf)
-                .unwrap()
-                .display(Verbosity::Verbose)
-        ),
+        format!("{}", cconf.kind.parse_command(&executor, &cconf).unwrap()),
         expected
     );
 }

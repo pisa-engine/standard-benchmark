@@ -2,7 +2,8 @@ extern crate tempdir;
 extern crate yaml_rust;
 
 use super::*;
-use crate::run::EvaluateData;
+use crate::run::{EvaluateData, RunData, TopicsFormat, TrecTopicField};
+use crate::tests::*;
 use tempdir::TempDir;
 use yaml_rust::YamlLoader;
 
@@ -48,6 +49,7 @@ fn test_parse_collection() {
     let yaml = yaml_rust::YamlLoader::load_from_str(
         "
         name: wapo
+        kind: wapo
         collection_dir: /path/to/wapo
         forward_index: fwd/wapo
         inverted_index: /absolute/path/to/inv/wapo
@@ -70,13 +72,14 @@ fn test_parse_collection_missing_coll_dir() {
     let yaml = yaml_rust::YamlLoader::load_from_str(
         "
         name: wapo
+        kind: wapo
         forward_index: fwd/wapo
         inverted_index: /absolute/path/to/inv/wapo",
     )
     .unwrap();
     assert_eq!(
-        test_conf().parse_collection(&yaml[0]),
-        Err("undefined collection_dir".into())
+        test_conf().parse_collection(&yaml[0]).err(),
+        Some("field collection_dir missing or not string".into())
     );
 }
 
@@ -85,14 +88,15 @@ fn test_parse_collection_missing_encodings() {
     let yaml = yaml_rust::YamlLoader::load_from_str(
         "
         name: wapo
+        kind: wapo
         collection_dir: dir
         forward_index: fwd/wapo
         inverted_index: /absolute/path/to/inv/wapo",
     )
     .unwrap();
     assert_eq!(
-        test_conf().parse_collection(&yaml[0]),
-        Err("failed to parse collection wapo: missing or corrupted encoding list".into())
+        test_conf().parse_collection(&yaml[0]).err(),
+        Some("failed to parse collection wapo: missing or corrupted encoding list".into())
     );
 }
 
@@ -108,6 +112,7 @@ source:
     url: https://github.com/pisa-engine/pisa.git
 collections:
     - name: wapo
+      kind: wapo
       collection_dir: /collections/wapo
       forward_index: fwd/wapo
       inverted_index: inv/wapo
@@ -117,7 +122,8 @@ runs:
     - collection: wapo
       type: evaluate
       topics: /topics
-      qrels: /qrels";
+      qrels: /qrels
+      output: r1.out";
     std::fs::write(&config_file, yml)?;
     let conf = Config::from_file(config_file).unwrap();
     assert_eq!(conf.workdir, PathBuf::from("/tmp"));
@@ -132,21 +138,25 @@ runs:
         conf.collections[0].as_ref(),
         &Collection {
             name: "wapo".to_string(),
+            kind: WashingtonPostCollection::boxed(),
             collection_dir: PathBuf::from("/collections/wapo"),
             forward_index: PathBuf::from("/tmp/fwd/wapo"),
             inverted_index: PathBuf::from("/tmp/inv/wapo"),
             encodings: vec!["block_simdbp".parse().unwrap()]
         }
     );
-    match &conf.runs[0] {
-        Run::Evaluate(EvaluateData {
-            collection,
+    assert_eq!(conf.runs[0].collection.name, "wapo");
+    match &conf.runs[0].data {
+        RunData::Evaluate(EvaluateData {
             topics,
+            topics_format,
             qrels,
+            output_file,
         }) => {
-            assert_eq!(collection.name, "wapo");
             assert_eq!(topics, &PathBuf::from("/topics"));
             assert_eq!(qrels, &PathBuf::from("/qrels"));
+            assert_eq!(topics_format, &TopicsFormat::Trec(TrecTopicField::Title));
+            assert_eq!(output_file, &PathBuf::from("/tmp/r1.out"));
         }
         _ => panic!(),
     }
@@ -207,4 +217,63 @@ fn test_yaml_ext() {
     let yaml = YamlLoader::load_from_str("name: wapo").unwrap();
     assert_eq!(yaml[0].require_string("name"), Ok("wapo"));
     assert!(yaml[0].require_string("unknown").is_err());
+}
+
+#[test]
+fn test_parse_command_trecweb() -> Result<(), Error> {
+    let tmp = TempDir::new("config")?;
+    let setup = mock_set_up(&tmp);
+    let cmd = TrecWebCollection::boxed()
+        .parse_command(setup.executor.as_ref(), &setup.config.collections[1])?;
+    assert_eq!(
+        cmd.to_string(),
+        format!(
+            "zcat \
+             {0}/gov2/GX000/00.gz {0}/gov2/GX000/01.gz \
+             {0}/gov2/GX001/02.gz {0}/gov2/GX001/03.gz\
+             \n    | {0}/parse_collection -o {}/gov2/fwd -f trecweb \
+             --stemmer porter2 --content-parser html --batch-size 1000",
+            tmp.path().display()
+        )
+    );
+    Ok(())
+}
+
+#[test]
+fn test_parse_command_warc() -> Result<(), Error> {
+    let tmp = TempDir::new("config")?;
+    let setup = mock_set_up(&tmp);
+    let cmd = WarcCollection::boxed()
+        .parse_command(setup.executor.as_ref(), &setup.config.collections[2])?;
+    assert_eq!(
+        cmd.to_string(),
+        format!(
+            "zcat \
+             {0}/cw09b/en0000/00.warc.gz {0}/cw09b/en0000/01.warc.gz \
+             {0}/cw09b/en0001/02.warc.gz {0}/cw09b/en0001/03.warc.gz\
+             \n    | {0}/parse_collection -o {}/cw09b/fwd -f warc \
+             --stemmer porter2 --content-parser html --batch-size 1000",
+            tmp.path().display()
+        )
+    );
+    Ok(())
+}
+
+#[test]
+fn test_colection_type_from_str() {
+    assert!(CollectionType::from("wapo")
+        .unwrap()
+        .downcast_ref::<WashingtonPostCollection>()
+        .is_some(),);
+    assert!(CollectionType::from("trecweb")
+        .unwrap()
+        .downcast_ref::<TrecWebCollection>()
+        .is_some(),);
+    assert!(CollectionType::from("unknown").is_err());
+}
+
+#[test]
+fn test_colection_type_to_str() {
+    assert_eq!(WashingtonPostCollection::boxed().to_string(), "wapo");
+    assert_eq!(TrecWebCollection::boxed().to_string(), "trecweb");
 }

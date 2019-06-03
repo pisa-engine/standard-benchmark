@@ -1,17 +1,25 @@
 //! Experiment configuration, which is used throughout a run, and mostly
 //! defined in an external YAML configuration file (with several exceptions).
 
+extern crate boolinator;
+extern crate downcast_rs;
+extern crate glob;
 extern crate yaml_rust;
 
+use crate::command::ExtCommand;
 use crate::error::Error;
 use crate::executor::*;
 use crate::run::Run;
 use crate::source::*;
 use crate::*;
+use boolinator::Boolinator;
+use downcast_rs::Downcast;
 use failure::ResultExt;
+use glob::glob;
 use log::error;
 use std::collections::{HashMap, HashSet};
 use std::convert::{From, Into};
+use std::fmt::Debug;
 use std::fs::read_to_string;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -63,11 +71,181 @@ impl std::fmt::Display for Encoding {
     }
 }
 
+/// Collection type defining parsing command.
+///
+/// Building an index is identical for any collection, but how the files
+/// are accessed for parsing differs.
+/// This trait is defined in order to enable enhancing this libary with
+/// new collection types in the future.
+pub trait CollectionType: Debug + Downcast + fmt::Display {
+    /// Returns a command object: its execution will parse the collection
+    /// and build a forward index.
+    fn parse_command(
+        &self,
+        executor: &dyn PisaExecutor,
+        collection: &Collection,
+    ) -> Result<ExtCommand, Error>;
+}
+impl_downcast!(CollectionType);
+
+impl CollectionType {
+    /// Parses a string and returns a requested collection type object,
+    /// or an error if the name is invalid.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # extern crate stdbench;
+    /// extern crate downcast_rs;
+    /// # use stdbench::config::*;
+    /// use downcast_rs::Downcast;
+    /// assert!(CollectionType::from("wapo").is_ok());
+    /// assert!(CollectionType::from("trecweb").is_ok());
+    /// assert!(CollectionType::from("unknown").is_err());
+    /// ```
+    pub fn from<S>(name: S) -> Result<Box<dyn CollectionType>, Error>
+    where
+        S: AsRef<str>,
+    {
+        match name.as_ref() {
+            "wapo" => Ok(WashingtonPostCollection::boxed()),
+            "trecweb" => Ok(TrecWebCollection::boxed()),
+            "warc" => Ok(WarcCollection::boxed()),
+            _ => Err(Error::from(format!(
+                "Unknown collection type: {}",
+                name.as_ref()
+            ))),
+        }
+    }
+}
+
+fn resolve_files<P: AsRef<Path>>(path: P) -> Result<Vec<PathBuf>, Error> {
+    let pattern = path.as_ref().to_str().unwrap();
+    let files: Vec<_> = glob(pattern).unwrap().filter_map(Result::ok).collect();
+    (!files.is_empty()).ok_or(format!(
+        "could not resolve any files for pattern: {}",
+        pattern
+    ))?;
+    Ok(files)
+}
+
+/// This is a collection such as Gov2.
+#[derive(Debug)]
+pub struct TrecWebCollection;
+impl TrecWebCollection {
+    /// Returns the object wrapped in `Box`.
+    pub fn boxed() -> Box<Self> {
+        Box::new(Self {})
+    }
+}
+impl fmt::Display for TrecWebCollection {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "trecweb")
+    }
+}
+impl CollectionType for TrecWebCollection {
+    fn parse_command(
+        &self,
+        executor: &dyn PisaExecutor,
+        collection: &Collection,
+    ) -> Result<ExtCommand, Error> {
+        let input_files = resolve_files(collection.collection_dir.join("GX*/*.gz"))?;
+        Ok(ExtCommand::new("zcat")
+            .args(&input_files)
+            .pipe_command(executor.command("parse_collection"))
+            .args(&[
+                "-o",
+                collection.forward_index.to_str().unwrap(),
+                "-f",
+                "trecweb",
+                "--stemmer",
+                "porter2",
+                "--content-parser",
+                "html",
+                "--batch-size",
+                "1000",
+            ]))
+    }
+}
+
+/// This is a collection such as Gov2.
+#[derive(Debug)]
+pub struct WarcCollection;
+impl WarcCollection {
+    /// Returns the object wrapped in `Box`.
+    pub fn boxed() -> Box<Self> {
+        Box::new(Self {})
+    }
+}
+impl fmt::Display for WarcCollection {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "warc")
+    }
+}
+impl CollectionType for WarcCollection {
+    fn parse_command(
+        &self,
+        executor: &dyn PisaExecutor,
+        collection: &Collection,
+    ) -> Result<ExtCommand, Error> {
+        let input_files = resolve_files(collection.collection_dir.join("en*/*.gz"))?;
+        Ok(ExtCommand::new("zcat")
+            .args(&input_files)
+            .pipe_command(executor.command("parse_collection"))
+            .args(&["-o", collection.forward_index.to_str().unwrap()])
+            .args(&["-f", "warc"])
+            .args(&["--stemmer", "porter2"])
+            .args(&["--content-parser", "html"])
+            .args(&["--batch-size", "1000"]))
+    }
+}
+
+/// WashingtonPost.v2 collection type: [](https://trec.nist.gov/data/wapost)
+#[derive(Debug)]
+pub struct WashingtonPostCollection;
+impl WashingtonPostCollection {
+    /// Returns the object wrapped in `Box`.
+    pub fn boxed() -> Box<Self> {
+        Box::new(Self {})
+    }
+}
+impl fmt::Display for WashingtonPostCollection {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "wapo")
+    }
+}
+impl CollectionType for WashingtonPostCollection {
+    fn parse_command(
+        &self,
+        executor: &dyn PisaExecutor,
+        collection: &Collection,
+    ) -> Result<ExtCommand, Error> {
+        let input_files = resolve_files(collection.collection_dir.join("data/*.jl"))?;
+        Ok(ExtCommand::new("cat")
+            .args(&input_files)
+            .pipe_command(executor.command("parse_collection"))
+            .args(&[
+                "-o",
+                collection.forward_index.to_str().unwrap(),
+                "-f",
+                "wapo",
+                "--stemmer",
+                "porter2",
+                "--content-parser",
+                "html",
+                "--batch-size",
+                "1000",
+            ]))
+    }
+}
+
 /// Configuration of a tested collection.
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub struct Collection {
-    /// A collection name used also as a type when deciding on how to parse it.
+    /// A collection name.
     pub name: String,
+    /// The colleciton's type used when deciding on how to parse it.
+    pub kind: Box<dyn CollectionType>,
     /// The root directory of the collection. Depending on a type, it could
     /// contain one or many files or directories. Must use `name` to determine
     /// how to find relevant data.
@@ -81,6 +259,23 @@ pub struct Collection {
     /// one for each technique.
     pub encodings: Vec<Encoding>,
 }
+impl PartialEq for Collection {
+    fn eq(&self, other: &Self) -> bool {
+        (
+            self.kind.to_string(),
+            &self.collection_dir,
+            &self.forward_index,
+            &self.inverted_index,
+            &self.encodings,
+        ) == (
+            other.kind.to_string(),
+            &other.collection_dir,
+            &other.forward_index,
+            &other.inverted_index,
+            &other.encodings,
+        )
+    }
+}
 impl Collection {
     /// Constructs a collection config from a YAML object.
     ///
@@ -90,10 +285,11 @@ impl Collection {
     /// extern crate yaml_rust;
     /// # extern crate stdbench;
     /// # use stdbench::config;
-    /// # use stdbench::config::{Collection, Encoding};
+    /// # use stdbench::config::*;
     /// # use std::path::PathBuf;
     /// let yaml = yaml_rust::YamlLoader::load_from_str("
     /// name: wapo
+    /// kind: wapo
     /// collection_dir: /path/to/wapo
     /// forward_index: fwd/wapo
     /// inverted_index: /absolute/path/to/inv/wapo
@@ -103,7 +299,8 @@ impl Collection {
     /// assert_eq!(
     ///     conf,
     ///     Ok(Collection {
-    ///         name: String::from("wapo"),
+    ///         name: "wapo".to_string(),
+    ///         kind: WashingtonPostCollection::boxed(),
     ///         collection_dir: PathBuf::from("/path/to/wapo"),
     ///         forward_index: PathBuf::from("fwd/wapo"),
     ///         inverted_index: PathBuf::from("/absolute/path/to/inv/wapo"),
@@ -112,31 +309,25 @@ impl Collection {
     /// ));
     /// ```
     pub fn from_yaml(yaml: &Yaml) -> Result<Self, Error> {
-        match (
-            yaml["name"].as_str(),
-            yaml["collection_dir"].as_str(),
-            yaml["forward_index"].as_str(),
-            yaml["inverted_index"].as_str(),
-            &yaml["encodings"],
-        ) {
-            (None, _, _, _, _) => Err("undefined name".into()),
-            (_, None, _, _, _) => Err("undefined collection_dir".into()),
-            (Some(name), Some(collection_dir), fwd, inv, encodings) => {
-                let encodings = Self::parse_encodings(&encodings)
-                    .context(format!("failed to parse collection {}", name))?;
-                Ok(Self {
-                    name: name.to_string(),
-                    collection_dir: PathBuf::from(collection_dir),
-                    forward_index: PathBuf::from(
-                        fwd.map_or_else(|| format!("fwd/{}", &name), String::from),
-                    ),
-                    inverted_index: PathBuf::from(
-                        inv.map_or_else(|| format!("inv/{}", &name), String::from),
-                    ),
-                    encodings,
-                })
-            }
-        }
+        let name = yaml.require_string("name")?;
+        let kind = yaml.require_string("kind")?;
+        let collection_dir = yaml.require_string("collection_dir")?;
+        let fwd = yaml["forward_index"].as_str();
+        let inv = yaml["inverted_index"].as_str();
+        let encodings = Self::parse_encodings(&yaml["encodings"])
+            .context(format!("failed to parse collection {}", name))?;
+        Ok(Self {
+            name: name.to_string(),
+            kind: CollectionType::from(kind)?,
+            collection_dir: PathBuf::from(collection_dir),
+            forward_index: PathBuf::from(
+                fwd.map_or_else(|| format!("fwd/{}", &name), String::from),
+            ),
+            inverted_index: PathBuf::from(
+                inv.map_or_else(|| format!("inv/{}", &name), String::from),
+            ),
+            encodings,
+        })
     }
 
     /// Returns a string representing forward index path.
@@ -272,7 +463,8 @@ impl Config {
         match runs {
             Yaml::Array(runs) => {
                 for run in runs {
-                    self.runs.push(Run::parse(&run, collections)?);
+                    self.runs
+                        .push(Run::parse(&run, collections, &self.workdir)?);
                 }
                 Ok(())
             }

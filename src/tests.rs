@@ -2,7 +2,7 @@ extern crate tempdir;
 
 use super::config::*;
 use super::executor::PisaExecutor;
-use super::run::{EvaluateData, Run};
+use super::run::{EvaluateData, Run, RunData, TopicsFormat, TrecTopicField};
 use super::source::*;
 use super::*;
 use boolinator::Boolinator;
@@ -35,22 +35,63 @@ fn mock_program(tmp: &TempDir, setup: &mut MockSetup, program: &'static str) {
 pub(crate) fn mock_set_up(tmp: &TempDir) -> MockSetup {
     let mut config = Config::new(tmp.path(), Box::new(CustomPathSource::from(tmp.path())));
     config.collections.push(Rc::new(Collection {
-        name: String::from("wapo"),
+        name: "wapo".to_string(),
+        kind: WashingtonPostCollection::boxed(),
         collection_dir: tmp.path().join("coll"),
         forward_index: tmp.path().join("fwd"),
         inverted_index: tmp.path().join("inv"),
         encodings: vec!["block_simdbp".into(), "block_qmx".into()],
     }));
-    config.runs.push(Run::Evaluate(EvaluateData {
-        collection: Rc::clone(config.collections.last().unwrap()),
-        topics: PathBuf::from("topics"),
-        qrels: PathBuf::from("qrels"),
+    config.collections.push(Rc::new(Collection {
+        name: "gov2".to_string(),
+        kind: TrecWebCollection::boxed(),
+        collection_dir: tmp.path().join("gov2"),
+        forward_index: tmp.path().join("gov2/fwd"),
+        inverted_index: tmp.path().join("gov2/inv"),
+        encodings: vec!["block_simdbp".into(), "block_qmx".into()],
     }));
+    config.collections.push(Rc::new(Collection {
+        name: "cw09b".to_string(),
+        kind: WarcCollection::boxed(),
+        collection_dir: tmp.path().join("cw09b"),
+        forward_index: tmp.path().join("cw09b/fwd"),
+        inverted_index: tmp.path().join("cw09b/inv"),
+        encodings: vec!["block_simdbp".into(), "block_qmx".into()],
+    }));
+    config.runs.push(Run {
+        collection: Rc::clone(&config.collections[0]),
+        data: RunData::Evaluate(EvaluateData {
+            topics: PathBuf::from("topics"),
+            topics_format: TopicsFormat::Trec(TrecTopicField::Title),
+            qrels: PathBuf::from("qrels"),
+            output_file: PathBuf::from("output.trec"),
+        }),
+    });
 
     let data_dir = tmp.path().join("coll").join("data");
     create_dir_all(&data_dir).unwrap();
     std::fs::File::create(data_dir.join("f.jl")).unwrap();
     let executor = config.executor().unwrap();
+
+    let gov2_dir = tmp.path().join("gov2");
+    let gov2_0_dir = gov2_dir.join("GX000");
+    let gov2_1_dir = gov2_dir.join("GX001");
+    create_dir_all(&gov2_0_dir).unwrap();
+    create_dir_all(&gov2_1_dir).unwrap();
+    std::fs::File::create(gov2_0_dir.join("00.gz")).unwrap();
+    std::fs::File::create(gov2_0_dir.join("01.gz")).unwrap();
+    std::fs::File::create(gov2_1_dir.join("02.gz")).unwrap();
+    std::fs::File::create(gov2_1_dir.join("03.gz")).unwrap();
+
+    let cw_dir = tmp.path().join("cw09b");
+    let cw_0_dir = cw_dir.join("en0000");
+    let cw_1_dir = cw_dir.join("en0001");
+    create_dir_all(&cw_0_dir).unwrap();
+    create_dir_all(&cw_1_dir).unwrap();
+    std::fs::File::create(cw_0_dir.join("00.warc.gz")).unwrap();
+    std::fs::File::create(cw_0_dir.join("01.warc.gz")).unwrap();
+    std::fs::File::create(cw_1_dir.join("02.warc.gz")).unwrap();
+    std::fs::File::create(cw_1_dir.join("03.warc.gz")).unwrap();
 
     let mut mock_setup = MockSetup {
         config,
@@ -112,8 +153,8 @@ fn test_make_echo() {
     make_echo(&echo, &output).unwrap();
     let executor = super::executor::CustomPathExecutor::try_from(tmp.path()).unwrap();
     executor
-        .command("e", &["arg1", "--a", "arg2"])
-        .command()
+        .command("e")
+        .args(&["arg1", "--a", "arg2"])
         .status()
         .unwrap();
     let output_text = std::fs::read_to_string(&output).unwrap();
