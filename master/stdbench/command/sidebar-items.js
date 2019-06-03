@@ -1,0 +1,1 @@
+initSidebarItems({"struct":[["ExtCommand","Extension of `Command`."]]});

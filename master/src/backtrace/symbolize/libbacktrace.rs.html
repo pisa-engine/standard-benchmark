@@ -1,4 +1,4 @@
-<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Source to the Rust file `/home/travis/.cargo/registry/src/github.com-1ecc6299db9ec823/backtrace-0.3.18/src/symbolize/libbacktrace.rs`."><meta name="keywords" content="rust, rustlang, rust-lang"><title>libbacktrace.rs.html -- source</title><link rel="stylesheet" type="text/css" href="../../../normalize.css"><link rel="stylesheet" type="text/css" href="../../../rustdoc.css" id="mainThemeStyle"><link rel="stylesheet" type="text/css" href="../../../dark.css"><link rel="stylesheet" type="text/css" href="../../../light.css" id="themeStyle"><script src="../../../storage.js"></script><noscript><link rel="stylesheet" href="../../../noscript.css"></noscript><link rel="shortcut icon" href="../../../favicon.ico"><style type="text/css">#crate-search{background-image:url("../../../down-arrow.svg");}</style></head><body class="rustdoc source"><!--[if lte IE 8]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="sidebar"><div class="sidebar-menu">&#9776;</div><a href='../../../backtrace/index.html'><img src='../../../rust-logo.png' alt='logo' width='100'></a></nav><div class="theme-picker"><button id="theme-picker" aria-label="Pick another theme!"><img src="../../../brush.svg" width="18" alt="Pick another theme!"></button><div id="theme-choices"></div></div><script src="../../../theme.js"></script><nav class="sub"><form class="search-form js-only"><div class="search-container"><div><select id="crate-search"><option value="All crates">All crates</option></select><input class="search-input" name="search" autocomplete="off" spellcheck="false" placeholder="Click or press ‘S’ to search, ‘?’ for more options…" type="search"></div><a id="settings-menu" href="../../../settings.html"><img src="../../../wheel.svg" width="18" alt="Change settings"></a></div></form></nav><section id="main" class="content"><pre class="line-numbers"><span id="1">  1</span>
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Source to the Rust file `/home/travis/.cargo/registry/src/github.com-1ecc6299db9ec823/backtrace-0.3.26/src/symbolize/libbacktrace.rs`."><meta name="keywords" content="rust, rustlang, rust-lang"><title>libbacktrace.rs.html -- source</title><link rel="stylesheet" type="text/css" href="../../../normalize.css"><link rel="stylesheet" type="text/css" href="../../../rustdoc.css" id="mainThemeStyle"><link rel="stylesheet" type="text/css" href="../../../dark.css"><link rel="stylesheet" type="text/css" href="../../../light.css" id="themeStyle"><script src="../../../storage.js"></script><noscript><link rel="stylesheet" href="../../../noscript.css"></noscript><link rel="shortcut icon" href="../../../favicon.ico"><style type="text/css">#crate-search{background-image:url("../../../down-arrow.svg");}</style></head><body class="rustdoc source"><!--[if lte IE 8]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="sidebar"><div class="sidebar-menu">&#9776;</div><a href='../../../backtrace/index.html'><div class='logo-container'><img src='../../../rust-logo.png' alt='logo'></div></a></nav><div class="theme-picker"><button id="theme-picker" aria-label="Pick another theme!"><img src="../../../brush.svg" width="18" alt="Pick another theme!"></button><div id="theme-choices"></div></div><script src="../../../theme.js"></script><nav class="sub"><form class="search-form js-only"><div class="search-container"><div><select id="crate-search"><option value="All crates">All crates</option></select><input class="search-input" name="search" autocomplete="off" spellcheck="false" placeholder="Click or press ‘S’ to search, ‘?’ for more options…" type="search"></div><a id="settings-menu" href="../../../settings.html"><img src="../../../wheel.svg" width="18" alt="Change settings"></a></div></form></nav><section id="main" class="content"><pre class="line-numbers"><span id="1">  1</span>
 <span id="2">  2</span>
 <span id="3">  3</span>
 <span id="4">  4</span>
@@ -408,6 +408,44 @@
 <span id="408">408</span>
 <span id="409">409</span>
 <span id="410">410</span>
+<span id="411">411</span>
+<span id="412">412</span>
+<span id="413">413</span>
+<span id="414">414</span>
+<span id="415">415</span>
+<span id="416">416</span>
+<span id="417">417</span>
+<span id="418">418</span>
+<span id="419">419</span>
+<span id="420">420</span>
+<span id="421">421</span>
+<span id="422">422</span>
+<span id="423">423</span>
+<span id="424">424</span>
+<span id="425">425</span>
+<span id="426">426</span>
+<span id="427">427</span>
+<span id="428">428</span>
+<span id="429">429</span>
+<span id="430">430</span>
+<span id="431">431</span>
+<span id="432">432</span>
+<span id="433">433</span>
+<span id="434">434</span>
+<span id="435">435</span>
+<span id="436">436</span>
+<span id="437">437</span>
+<span id="438">438</span>
+<span id="439">439</span>
+<span id="440">440</span>
+<span id="441">441</span>
+<span id="442">442</span>
+<span id="443">443</span>
+<span id="444">444</span>
+<span id="445">445</span>
+<span id="446">446</span>
+<span id="447">447</span>
+<span id="448">448</span>
 </pre><div class="example-wrap"><pre class="rust ">
 <span class="comment">// Copyright 2014-2015 The Rust Project Developers. See the COPYRIGHT</span>
 <span class="comment">// file at the top-level directory of this distribution and at</span>
@@ -418,6 +456,29 @@
 <span class="comment">// &lt;LICENSE-MIT or http://opensource.org/licenses/MIT&gt;, at your</span>
 <span class="comment">// option. This file may not be copied, modified, or distributed</span>
 <span class="comment">// except according to those terms.</span>
+
+<span class="doccomment">//! Symbolication strategy using the DWARF-parsing code in libbacktrace.</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! The libbacktrace C library, typically distributed with gcc, supports not</span>
+<span class="doccomment">//! only generating a backtrace (which we don&#39;t actually use) but also</span>
+<span class="doccomment">//! symbolicating the backtrace and handling dwarf debug information about</span>
+<span class="doccomment">//! things like inlined frames and whatnot.</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! This is relatively complicated due to lots of various concerns here, but the</span>
+<span class="doccomment">//! basic idea is:</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! * First we call `backtrace_syminfo`. This gets symbol information from the</span>
+<span class="doccomment">//!   dynamic symbol table if we can.</span>
+<span class="doccomment">//! * Next we call `backtrace_pcinfo`. This will parse debuginfo tables if</span>
+<span class="doccomment">//!   they&#39;re available and allow us to recover information about inline frames,</span>
+<span class="doccomment">//!   filenames, line numbers, etc.</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! There&#39;s lots of trickery about getting the dwarf tables into libbacktrace,</span>
+<span class="doccomment">//! but hopefully it&#39;s not the end of the world and is clear enough when reading</span>
+<span class="doccomment">//! below.</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! This is the default symbolication strategy for non-MSVC and non-OSX</span>
+<span class="doccomment">//! platforms. In libstd though this is the default strategy for OSX.</span>
 
 <span class="attribute">#![<span class="ident">allow</span>(<span class="ident">bad_style</span>)]</span>
 
@@ -555,6 +616,8 @@
     <span class="ident">_symval</span>: <span class="ident">uintptr_t</span>,
     <span class="ident">_symsize</span>: <span class="ident">uintptr_t</span>,
 ) {
+    <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">bomb</span> <span class="op">=</span> ::<span class="ident">Bomb</span> { <span class="ident">enabled</span>: <span class="bool-val">true</span> };
+
     <span class="comment">// Once this callback is invoked from `backtrace_syminfo` when we start</span>
     <span class="comment">// resolving we go further to call `backtrace_pcinfo`. The</span>
     <span class="comment">// `backtrace_pcinfo` function will consult debug information and attemp tto</span>
@@ -577,16 +640,16 @@
             <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">pcinfo_state</span> <span class="kw">as</span> <span class="kw-2">*</span><span class="kw-2">mut</span> <span class="kw">_</span> <span class="kw">as</span> <span class="kw-2">*</span><span class="kw-2">mut</span> <span class="kw">_</span>,
         );
         <span class="kw">if</span> <span class="op">!</span><span class="ident">pcinfo_state</span>.<span class="ident">called</span> {
-            <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">bomb</span> <span class="op">=</span> ::<span class="ident">Bomb</span> { <span class="ident">enabled</span>: <span class="bool-val">true</span> };
             (<span class="ident">pcinfo_state</span>.<span class="ident">cb</span>)(<span class="kw-2">&amp;</span><span class="kw">super</span>::<span class="ident">Symbol</span> {
                 <span class="ident">inner</span>: <span class="ident">Symbol</span>::<span class="ident">Syminfo</span> {
                     <span class="ident">pc</span>: <span class="ident">pc</span>,
                     <span class="ident">symname</span>: <span class="ident">symname</span>,
                 },
             });
-            <span class="ident">bomb</span>.<span class="ident">enabled</span> <span class="op">=</span> <span class="bool-val">false</span>;
         }
     }
+
+    <span class="ident">bomb</span>.<span class="ident">enabled</span> <span class="op">=</span> <span class="bool-val">false</span>;
 }
 
 <span class="doccomment">/// Type of the `data` pointer passed into `pcinfo_cb`</span>
@@ -603,12 +666,13 @@
     <span class="ident">lineno</span>: <span class="ident">c_int</span>,
     <span class="ident">function</span>: <span class="kw-2">*</span><span class="kw">const</span> <span class="ident">c_char</span>,
 ) <span class="op">-&gt;</span> <span class="ident">c_int</span> {
+    <span class="kw">if</span> <span class="ident">filename</span>.<span class="ident">is_null</span>() <span class="op">||</span> <span class="ident">function</span>.<span class="ident">is_null</span>() {
+        <span class="kw">return</span> <span class="op">-</span><span class="number">1</span>;
+    }
+    <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">bomb</span> <span class="op">=</span> ::<span class="ident">Bomb</span> { <span class="ident">enabled</span>: <span class="bool-val">true</span> };
+
     <span class="kw">unsafe</span> {
-        <span class="kw">if</span> <span class="ident">filename</span>.<span class="ident">is_null</span>() <span class="op">||</span> <span class="ident">function</span>.<span class="ident">is_null</span>() {
-            <span class="kw">return</span> <span class="op">-</span><span class="number">1</span>;
-        }
         <span class="kw">let</span> <span class="ident">state</span> <span class="op">=</span> <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="kw-2">*</span>(<span class="ident">data</span> <span class="kw">as</span> <span class="kw-2">*</span><span class="kw-2">mut</span> <span class="ident">PcinfoState</span>);
-        <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">bomb</span> <span class="op">=</span> ::<span class="ident">Bomb</span> { <span class="ident">enabled</span>: <span class="bool-val">true</span> };
         <span class="ident">state</span>.<span class="ident">called</span> <span class="op">=</span> <span class="bool-val">true</span>;
         (<span class="ident">state</span>.<span class="ident">cb</span>)(<span class="kw-2">&amp;</span><span class="kw">super</span>::<span class="ident">Symbol</span> {
             <span class="ident">inner</span>: <span class="ident">Symbol</span>::<span class="ident">Pcinfo</span> {
@@ -619,10 +683,10 @@
                 <span class="ident">function</span>,
             },
         });
-        <span class="ident">bomb</span>.<span class="ident">enabled</span> <span class="op">=</span> <span class="bool-val">false</span>;
-
-        <span class="kw">return</span> <span class="number">0</span>;
     }
+
+    <span class="ident">bomb</span>.<span class="ident">enabled</span> <span class="op">=</span> <span class="bool-val">false</span>;
+    <span class="kw">return</span> <span class="number">0</span>;
 }
 
 <span class="comment">// The libbacktrace API supports creating a state, but it does not</span>
@@ -793,7 +857,19 @@
 }
 
 <span class="kw">pub</span> <span class="kw">unsafe</span> <span class="kw">fn</span> <span class="ident">resolve</span>(<span class="ident">what</span>: <span class="ident">ResolveWhat</span>, <span class="ident">cb</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">FnMut</span>(<span class="kw-2">&amp;</span><span class="kw">super</span>::<span class="ident">Symbol</span>)) {
-    <span class="kw">let</span> <span class="ident">symaddr</span> <span class="op">=</span> <span class="ident">what</span>.<span class="ident">address_or_ip</span>();
+    <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">symaddr</span> <span class="op">=</span> <span class="ident">what</span>.<span class="ident">address_or_ip</span>() <span class="kw">as</span> <span class="ident">usize</span>;
+
+    <span class="comment">// It&#39;s sort of unclear why this is necessary, but it appears that the ip</span>
+    <span class="comment">// values from stack traces are typically the instruction *after* the call</span>
+    <span class="comment">// that&#39;s the actual stack trace. Symbolizing this on Windows causes the</span>
+    <span class="comment">// filename/line number to be one ahead and perhaps into the void if it&#39;s</span>
+    <span class="comment">// near the end of the function. Apparently on Unix though it&#39;s roughly fine</span>
+    <span class="comment">// in that the filename/line number turn out alright. For now just try to</span>
+    <span class="comment">// get good backtraces with this, and hopefully one day we can figure out</span>
+    <span class="comment">// why the `-=1` is here.</span>
+    <span class="kw">if</span> <span class="macro">cfg</span><span class="macro">!</span>(<span class="ident">windows</span>) <span class="op">&amp;&amp;</span> <span class="ident">symaddr</span> <span class="op">&gt;</span> <span class="number">0</span> {
+        <span class="ident">symaddr</span> <span class="op">-=</span> <span class="number">1</span>;
+    }
 
     <span class="comment">// backtrace errors are currently swept under the rug</span>
     <span class="kw">let</span> <span class="ident">state</span> <span class="op">=</span> <span class="ident">init_state</span>();
@@ -808,7 +884,7 @@
     <span class="comment">// Note that we do this since `syminfo` will consult the symbol table,</span>
     <span class="comment">// finding symbol names even if there&#39;s no debug information in the binary.</span>
     <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">syminfo_state</span> <span class="op">=</span> <span class="ident">SyminfoState</span> {
-        <span class="ident">pc</span>: <span class="ident">symaddr</span> <span class="kw">as</span> <span class="ident">usize</span>,
+        <span class="ident">pc</span>: <span class="ident">symaddr</span>,
         <span class="ident">cb</span>: <span class="ident">cb</span>,
     };
     <span class="ident">bt</span>::<span class="ident">backtrace_syminfo</span>(
