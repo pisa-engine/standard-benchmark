@@ -144,7 +144,7 @@ fn test_suppressed_parse_and_invert() {
 }
 
 #[test]
-fn test_suppressed_parse_batches() {
+fn test_suppressed_parse_batches() -> Result<(), Error> {
     let tmp = TempDir::new("build").unwrap();
     let MockSetup {
         mut config,
@@ -153,9 +153,15 @@ fn test_suppressed_parse_batches() {
         outputs: _,
         term_count: _,
     } = mock_set_up(&tmp);
+    std::fs::File::create(format!(
+        "{}.batch.0.documents",
+        &config.collections[0].fwd()?
+    ))
+    .unwrap();
     config.suppress_stage(Stage::ParseBatches);
     let stages = collection(executor.as_ref(), &config.collections[0], &config).unwrap();
     assert_eq!(stages, vec![Stage::BuildIndex, Stage::Invert]);
+    Ok(())
 }
 
 #[test]
