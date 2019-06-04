@@ -47,8 +47,7 @@ fn merge_parsed_batches(executor: &dyn PisaExecutor, collection: &Collection) ->
             Ok(0_usize),
             |acc: Result<usize, Error>, count: Result<usize, Error>| Ok(acc? + count?),
         )?;
-    executor
-        .command("parse_collection")
+    ExtCommand::from(executor.command("parse_collection"))
         .args(&["--output", collection.fwd()?])
         .arg("merge")
         .args(&["--batch-count", &batch_count.to_string()])

@@ -39,6 +39,14 @@ impl ExtCommand {
             pipeline: vec![],
         }
     }
+    /// Constructs a new verbose command from the argument.
+    pub fn from(command: Command) -> Self {
+        Self {
+            verbosity: Verbosity::Verbose,
+            command,
+            pipeline: vec![],
+        }
+    }
 
     /// Adds a single argument.
     pub fn arg<S: AsRef<OsStr>>(mut self, arg: S) -> Self {
