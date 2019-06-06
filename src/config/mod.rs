@@ -211,7 +211,7 @@ impl CollectionType for WarcCollection {
             .args(&["-f", "warc"])
             .args(&["--stemmer", "porter2"])
             .args(&["--content-parser", "html"])
-            .args(&["--batch-size", "1000"]))
+            .args(&["--batch-size", "100000"]))
     }
 }
 
