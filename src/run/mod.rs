@@ -5,6 +5,7 @@ extern crate strum_macros;
 extern crate tempdir;
 extern crate yaml_rust;
 
+use crate::config::ParseYaml;
 use crate::{
     command::ExtCommand,
     config::{Collection, CollectionMap, YamlExt},
@@ -171,12 +172,12 @@ impl Run {
     where
         P: AsRef<Path>,
     {
-        let collection_name = yaml.require_string("collection")?;
+        let collection_name: String = yaml.parse_field("collection")?;
         let collection = collections
-            .get(collection_name)
+            .get(&collection_name)
             .ok_or_else(|| format!("collection {} not found in config", collection_name))?;
-        let typ = yaml.require_string("type")?;
-        match typ {
+        let typ: String = yaml.parse_field("type")?;
+        match typ.as_ref() {
             "evaluate" => Self::parse_evaluate(yaml, Rc::clone(collection), workdir),
             unknown => Err(Error::from(format!("unknown run type: {}", unknown))),
         }

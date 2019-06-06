@@ -9,6 +9,7 @@ use super::config::*;
 use super::error::Error;
 use super::executor::*;
 use super::{execute, Stage};
+use crate::config::FromYaml;
 use boolinator::Boolinator;
 use downcast_rs::{impl_downcast, Downcast};
 use failure::ResultExt;
@@ -110,6 +111,18 @@ impl dyn PisaSource {
                 typ => Err(format!("unknown source type: {}", typ).into()),
             },
             None => Err("missing or corrupted source.type".into()),
+        }
+    }
+}
+
+#[allow(clippy::use_self)]
+impl FromYaml for Box<dyn PisaSource> {
+    fn from_yaml(yaml: &Yaml) -> Result<Self, Error> {
+        match yaml.parse_field::<String>("type")?.as_ref() {
+            "git" => Ok(Box::new(PisaSource::parse_git_source(&yaml)?)),
+            "path" => Ok(Box::new(PisaSource::parse_path_source(&yaml)?)),
+            "docker" => Ok(Box::new(PisaSource::parse_docker_source(&yaml)?)),
+            typ => Err(format!("unknown source type: {}", typ).into()),
         }
     }
 }

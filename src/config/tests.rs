@@ -2,6 +2,7 @@ extern crate tempdir;
 extern crate yaml_rust;
 
 use super::*;
+use crate::config::ParseYaml;
 use crate::run::{EvaluateData, RunData, TopicsFormat, TrecTopicField};
 use crate::tests::*;
 use tempdir::TempDir;
@@ -21,27 +22,22 @@ fn test_suppress() {
 #[test]
 fn test_parse_encodings() {
     assert_eq!(
-        Collection::parse_encodings(&YamlLoader::load_from_str("- block_simdbp").unwrap()[0]),
+        //Collection::parse_encodings(&YamlLoader::load_from_str("- block_simdbp").unwrap()[0]),
+        YamlLoader::load_from_str("- block_simdbp").unwrap()[0].parse::<Vec<Encoding>>(),
         Ok(vec![Encoding::from("block_simdbp")])
     );
-    assert_eq!(
-        Collection::parse_encodings(
-            &YamlLoader::load_from_str("- block_simdbp\n- complex: {}\n  object: x\n- block_qmx")
-                .unwrap()[0]
-        ),
-        Ok(vec![
-            Encoding::from("block_simdbp"),
-            Encoding::from("block_qmx")
-        ])
+    assert!(
+        &YamlLoader::load_from_str("- block_simdbp\n- complex: {}\n  object: x\n- block_qmx")
+            .unwrap()[0]
+            .parse::<Vec<Encoding>>()
+            .is_err()
     );
-    assert_eq!(
-        Collection::parse_encodings(&YamlLoader::load_from_str("some string").unwrap()[0]),
-        Err(Error::from("missing or corrupted encoding list"))
-    );
-    assert_eq!(
-        Collection::parse_encodings(&YamlLoader::load_from_str("- complex: x").unwrap()[0]),
-        Err(Error::from("no valid encoding entries"))
-    );
+    assert!(YamlLoader::load_from_str("some string").unwrap()[0]
+        .parse::<Vec<Encoding>>()
+        .is_err(),);
+    assert!(YamlLoader::load_from_str("- complex: x").unwrap()[0]
+        .parse::<Vec<Encoding>>()
+        .is_err());
 }
 
 #[test]
@@ -74,13 +70,17 @@ fn test_parse_collection_missing_coll_dir() {
         name: wapo
         kind: wapo
         forward_index: fwd/wapo
-        inverted_index: /absolute/path/to/inv/wapo",
+        inverted_index: /absolute/path/to/inv/wapo
+        encodings:
+          - block_simdbp",
     )
     .unwrap();
-    assert_eq!(
-        test_conf().parse_collection(&yaml[0]).err(),
-        Some("field collection_dir missing or not string".into())
-    );
+    let error_msg = test_conf()
+        .parse_collection(&yaml[0])
+        .err()
+        .unwrap()
+        .to_string();
+    assert!(error_msg.contains("No key 'collection_dir' found in"));
 }
 
 #[test]
@@ -94,10 +94,7 @@ fn test_parse_collection_missing_encodings() {
         inverted_index: /absolute/path/to/inv/wapo",
     )
     .unwrap();
-    assert_eq!(
-        test_conf().parse_collection(&yaml[0]).err(),
-        Some("failed to parse collection wapo: missing or corrupted encoding list".into())
-    );
+    assert!(test_conf().parse_collection(&yaml[0]).is_err(),);
 }
 
 #[test]
@@ -180,7 +177,7 @@ source:
 }
 
 #[test]
-fn test_config_from_file_corrupted_collection() -> std::io::Result<()> {
+fn test_config_from_corrupted_collection() -> std::io::Result<()> {
     let tmp = TempDir::new("tmp")?;
     let config_file = tmp.path().join("conf.yml");
     let yml = "
