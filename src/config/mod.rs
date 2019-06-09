@@ -178,7 +178,7 @@ impl CollectionType for TrecWebCollection {
                 "--content-parser",
                 "html",
                 "--batch-size",
-                "1000",
+                "10000",
             ]))
     }
 }
@@ -211,7 +211,7 @@ impl CollectionType for WarcCollection {
             .args(&["-f", "warc"])
             .args(&["--stemmer", "porter2"])
             .args(&["--content-parser", "html"])
-            .args(&["--batch-size", "100000"]))
+            .args(&["--batch-size", "10000"]))
     }
 }
 
