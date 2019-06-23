@@ -179,6 +179,14 @@
 <span id="179">179</span>
 <span id="180">180</span>
 <span id="181">181</span>
+<span id="182">182</span>
+<span id="183">183</span>
+<span id="184">184</span>
+<span id="185">185</span>
+<span id="186">186</span>
+<span id="187">187</span>
+<span id="188">188</span>
+<span id="189">189</span>
 </pre><div class="example-wrap"><pre class="rust ">
 <span class="doccomment">//! This module extends the standard `Command` with abilities</span>
 <span class="doccomment">//! to print and pipe commands.</span>
@@ -218,6 +226,14 @@
         <span class="self">Self</span> {
             <span class="ident">verbosity</span>: <span class="ident">Verbosity</span>::<span class="ident">Verbose</span>,
             <span class="ident">command</span>: <span class="ident">Command</span>::<span class="ident">new</span>(<span class="ident">program</span>),
+            <span class="ident">pipeline</span>: <span class="macro">vec</span><span class="macro">!</span>[],
+        }
+    }
+    <span class="doccomment">/// Constructs a new verbose command from the argument.</span>
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">from</span>(<span class="ident">command</span>: <span class="ident">Command</span>) <span class="op">-&gt;</span> <span class="self">Self</span> {
+        <span class="self">Self</span> {
+            <span class="ident">verbosity</span>: <span class="ident">Verbosity</span>::<span class="ident">Verbose</span>,
+            <span class="ident">command</span>,
             <span class="ident">pipeline</span>: <span class="macro">vec</span><span class="macro">!</span>[],
         }
     }

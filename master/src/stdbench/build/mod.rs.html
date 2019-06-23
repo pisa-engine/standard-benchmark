@@ -98,23 +98,40 @@
 <span id="98"> 98</span>
 <span id="99"> 99</span>
 <span id="100">100</span>
+<span id="101">101</span>
+<span id="102">102</span>
+<span id="103">103</span>
+<span id="104">104</span>
+<span id="105">105</span>
+<span id="106">106</span>
+<span id="107">107</span>
+<span id="108">108</span>
+<span id="109">109</span>
+<span id="110">110</span>
+<span id="111">111</span>
+<span id="112">112</span>
+<span id="113">113</span>
+<span id="114">114</span>
+<span id="115">115</span>
+<span id="116">116</span>
+<span id="117">117</span>
 </pre><div class="example-wrap"><pre class="rust ">
 <span class="doccomment">//! Anything that has to do with building either forward or inverted index,</span>
 <span class="doccomment">//! including parsing and compressing.</span>
 
 <span class="kw">extern</span> <span class="kw">crate</span> <span class="ident">boolinator</span>;
 <span class="kw">extern</span> <span class="kw">crate</span> <span class="ident">failure</span>;
-<span class="kw">extern</span> <span class="kw">crate</span> <span class="ident">glob</span>;
 <span class="kw">extern</span> <span class="kw">crate</span> <span class="ident">log</span>;
 
-<span class="kw">use</span> <span class="kw">super</span>::<span class="ident">command</span>::<span class="ident">ExtCommand</span>;
-<span class="kw">use</span> <span class="kw">super</span>::<span class="ident">config</span>::<span class="kw-2">*</span>;
-<span class="kw">use</span> <span class="kw">super</span>::<span class="ident">error</span>::<span class="ident">Error</span>;
-<span class="kw">use</span> <span class="kw">super</span>::<span class="ident">executor</span>::<span class="kw-2">*</span>;
-<span class="kw">use</span> <span class="kw">super</span>::<span class="kw-2">*</span>;
+<span class="kw">use</span> <span class="kw">crate</span>::<span class="ident">command</span>::<span class="ident">ExtCommand</span>;
+<span class="kw">use</span> <span class="kw">crate</span>::<span class="ident">config</span>::<span class="kw-2">*</span>;
+<span class="kw">use</span> <span class="kw">crate</span>::<span class="ident">error</span>::<span class="ident">Error</span>;
+<span class="kw">use</span> <span class="kw">crate</span>::<span class="ident">executor</span>::<span class="kw-2">*</span>;
+<span class="kw">use</span> <span class="kw">crate</span>::<span class="kw-2">*</span>;
 <span class="kw">use</span> <span class="ident">boolinator</span>::<span class="ident">Boolinator</span>;
 <span class="kw">use</span> <span class="ident">failure</span>::<span class="ident">ResultExt</span>;
 <span class="kw">use</span> <span class="ident">log</span>::{<span class="ident">info</span>, <span class="ident">warn</span>};
+<span class="kw">use</span> <span class="ident">std</span>::{<span class="ident">fs</span>::<span class="ident">File</span>, <span class="ident">io</span>::<span class="ident">BufRead</span>, <span class="ident">io</span>::<span class="ident">BufReader</span>};
 
 <span class="doccomment">/// Retrieves the term count of an already built collection.</span>
 <span class="doccomment">///</span>
@@ -137,17 +154,29 @@
     <span class="prelude-val">Ok</span>(<span class="ident">count</span>)
 }
 
+<span class="kw">fn</span> <span class="ident">merge_parsed_batches</span>(<span class="ident">executor</span>: <span class="kw-2">&amp;</span><span class="kw">dyn</span> <span class="ident">PisaExecutor</span>, <span class="ident">collection</span>: <span class="kw-2">&amp;</span><span class="ident">Collection</span>) <span class="op">-&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span>(), <span class="ident">Error</span><span class="op">&gt;</span> {
+    <span class="kw">let</span> <span class="ident">batch_pattern</span> <span class="op">=</span> <span class="macro">format</span><span class="macro">!</span>(<span class="string">&quot;{}.batch.*documents&quot;</span>, <span class="ident">collection</span>.<span class="ident">fwd</span>()<span class="question-mark">?</span>);
+    <span class="kw">let</span> <span class="ident">batch_doc_files</span> <span class="op">=</span> <span class="ident">resolve_files</span>(<span class="kw-2">&amp;</span><span class="ident">batch_pattern</span>)<span class="question-mark">?</span>;
+    <span class="kw">let</span> <span class="ident">batch_count</span> <span class="op">=</span> <span class="ident">batch_doc_files</span>.<span class="ident">len</span>();
+    <span class="kw">let</span> <span class="ident">document_count</span> <span class="op">=</span> <span class="ident">batch_doc_files</span>
+        .<span class="ident">iter</span>()
+        .<span class="ident">map</span>(<span class="op">|</span><span class="ident">f</span><span class="op">|</span> <span class="prelude-val">Ok</span>(<span class="ident">BufReader</span>::<span class="ident">new</span>(<span class="ident">File</span>::<span class="ident">open</span>(<span class="ident">f</span>)<span class="question-mark">?</span>).<span class="ident">lines</span>().<span class="ident">count</span>()))
+        .<span class="ident">fold</span>(
+            <span class="prelude-val">Ok</span>(<span class="number">0_usize</span>),
+            <span class="op">|</span><span class="ident">acc</span>: <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="ident">usize</span>, <span class="ident">Error</span><span class="op">&gt;</span>, <span class="ident">count</span>: <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="ident">usize</span>, <span class="ident">Error</span><span class="op">&gt;</span><span class="op">|</span> <span class="prelude-val">Ok</span>(<span class="ident">acc</span><span class="question-mark">?</span> <span class="op">+</span> <span class="ident">count</span><span class="question-mark">?</span>),
+        )<span class="question-mark">?</span>;
+    <span class="ident">ExtCommand</span>::<span class="ident">from</span>(<span class="ident">executor</span>.<span class="ident">command</span>(<span class="string">&quot;parse_collection&quot;</span>))
+        .<span class="ident">args</span>(<span class="kw-2">&amp;</span>[<span class="string">&quot;--output&quot;</span>, <span class="ident">collection</span>.<span class="ident">fwd</span>()<span class="question-mark">?</span>])
+        .<span class="ident">arg</span>(<span class="string">&quot;merge&quot;</span>)
+        .<span class="ident">args</span>(<span class="kw-2">&amp;</span>[<span class="string">&quot;--batch-count&quot;</span>, <span class="kw-2">&amp;</span><span class="ident">batch_count</span>.<span class="ident">to_string</span>()])
+        .<span class="ident">args</span>(<span class="kw-2">&amp;</span>[<span class="string">&quot;--document-count&quot;</span>, <span class="kw-2">&amp;</span><span class="ident">document_count</span>.<span class="ident">to_string</span>()])
+        .<span class="ident">status</span>()<span class="question-mark">?</span>
+        .<span class="ident">success</span>()
+        .<span class="ident">ok_or</span>(<span class="string">&quot;Failed to merge collection batches&quot;</span>)<span class="question-mark">?</span>;
+    <span class="prelude-val">Ok</span>(())
+}
+
 <span class="doccomment">/// Builds a requeested collection, using a given executor.</span>
-<span class="doccomment">///</span>
-<span class="doccomment">/// **Note**: Some steps might be ignored if the `config` struct</span>
-<span class="doccomment">/// has been instructed to suppress some stages.</span>
-<span class="doccomment">/// ```</span>
-<span class="doccomment">/// # extern crate stdbench;</span>
-<span class="doccomment">/// # use stdbench::Stage;</span>
-<span class="doccomment">/// let stage = Stage::BuildIndex; // suppresses the entire function</span>
-<span class="doccomment">/// let stage = Stage::ParseCollection; // suppresses building forward index</span>
-<span class="doccomment">/// let stage = Stage::Invert; // suppresses building inverted index</span>
-<span class="doccomment">/// ```</span>
 <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">collection</span>(
     <span class="ident">executor</span>: <span class="kw-2">&amp;</span><span class="kw">dyn</span> <span class="ident">PisaExecutor</span>,
     <span class="ident">collection</span>: <span class="kw-2">&amp;</span><span class="ident">Collection</span>,
@@ -169,10 +198,15 @@
         <span class="kw">if</span> <span class="ident">config</span>.<span class="ident">is_suppressed</span>(<span class="ident">Stage</span>::<span class="ident">ParseCollection</span>) {
             <span class="macro">warn</span><span class="macro">!</span>(<span class="string">&quot;[{}] [build] [parse] Suppressed&quot;</span>, <span class="ident">name</span>);
         } <span class="kw">else</span> {
-            <span class="ident">stages_run</span>.<span class="ident">push</span>(<span class="ident">Stage</span>::<span class="ident">ParseCollection</span>);
-            <span class="macro">info</span><span class="macro">!</span>(<span class="string">&quot;[{}] [build] [parse] Parsing collection&quot;</span>, <span class="ident">name</span>);
-            <span class="kw">let</span> <span class="ident">pipeline</span> <span class="op">=</span> <span class="ident">collection</span>.<span class="ident">kind</span>.<span class="ident">parse_command</span>(<span class="kw-2">&amp;</span><span class="kw-2">*</span><span class="ident">executor</span>, <span class="kw-2">&amp;</span><span class="ident">collection</span>)<span class="question-mark">?</span>;
-            <span class="macro">execute</span><span class="macro">!</span>(<span class="ident">pipeline</span>; <span class="string">&quot;Failed to parse&quot;</span>);
+            <span class="kw">if</span> <span class="ident">config</span>.<span class="ident">is_suppressed</span>(<span class="ident">Stage</span>::<span class="ident">ParseBatches</span>) {
+                <span class="macro">warn</span><span class="macro">!</span>(<span class="string">&quot;[{}] [build] [parse] Only merging&quot;</span>, <span class="ident">name</span>);
+                <span class="ident">merge_parsed_batches</span>(<span class="ident">executor</span>, <span class="kw-2">&amp;</span><span class="ident">collection</span>)<span class="question-mark">?</span>;
+            } <span class="kw">else</span> {
+                <span class="ident">stages_run</span>.<span class="ident">push</span>(<span class="ident">Stage</span>::<span class="ident">ParseCollection</span>);
+                <span class="macro">info</span><span class="macro">!</span>(<span class="string">&quot;[{}] [build] [parse] Parsing collection&quot;</span>, <span class="ident">name</span>);
+                <span class="kw">let</span> <span class="ident">parse</span> <span class="op">=</span> <span class="ident">collection</span>.<span class="ident">kind</span>.<span class="ident">parse_command</span>(<span class="kw-2">&amp;</span><span class="kw-2">*</span><span class="ident">executor</span>, <span class="kw-2">&amp;</span><span class="ident">collection</span>)<span class="question-mark">?</span>;
+                <span class="macro">execute</span><span class="macro">!</span>(<span class="ident">parse</span>; <span class="string">&quot;Failed to parse&quot;</span>);
+            }
             <span class="kw">let</span> <span class="ident">fwd</span> <span class="op">=</span> <span class="ident">collection</span>.<span class="ident">forward_index</span>.<span class="ident">display</span>();
             <span class="ident">executor</span>.<span class="ident">build_lexicon</span>(<span class="macro">format</span><span class="macro">!</span>(<span class="string">&quot;{}.terms&quot;</span>, <span class="ident">fwd</span>), <span class="macro">format</span><span class="macro">!</span>(<span class="string">&quot;{}.termmap&quot;</span>, <span class="ident">fwd</span>))<span class="question-mark">?</span>;
             <span class="ident">executor</span>.<span class="ident">build_lexicon</span>(<span class="macro">format</span><span class="macro">!</span>(<span class="string">&quot;{}.documents&quot;</span>, <span class="ident">fwd</span>), <span class="macro">format</span><span class="macro">!</span>(<span class="string">&quot;{}.docmap&quot;</span>, <span class="ident">fwd</span>))<span class="question-mark">?</span>;
