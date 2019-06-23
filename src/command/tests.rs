@@ -73,7 +73,7 @@ fn test_piped_commands() -> Result<(), Error> {
                 .arg("hello")
                 .pipe_new("wc")
                 .arg("-l")
-                .pipe_command(Command::new("grep"))
+                .pipe_command(ExtCommand::new("grep"))
                 .arg("1")
                 .output()?
                 .stdout
@@ -133,4 +133,9 @@ fn test_change_dir() -> Result<(), Error> {
         Ok("f1\n")
     );
     Ok(())
+}
+
+#[test]
+fn test_from_command() {
+    assert_eq!(ExtCommand::from(Command::new("echo")).to_string(), "echo");
 }

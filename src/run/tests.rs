@@ -34,6 +34,35 @@ fn test_evaluate() {
             tmp.path().join("inv").display(),
         )
     );
+    assert_eq!(
+        evaluate(executor.as_ref(), &config.runs[2]).err(),
+        Some(Error::from("Run of type benchmark cannot be evaluated"))
+    )
+}
+
+#[test]
+#[cfg_attr(target_family, unix)]
+fn test_evaluate_simple_topics() {
+    let tmp = TempDir::new("build").unwrap();
+    let MockSetup {
+        config,
+        executor,
+        programs,
+        outputs,
+        term_count: _,
+    } = mock_set_up(&tmp);
+    evaluate(executor.as_ref(), &config.runs[1]).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(outputs.get("evaluate_queries").unwrap()).unwrap(),
+        format!(
+            "{0} -t block_simdbp -i {2}.block_simdbp -w {2}.wand -a wand \
+             -q topics --terms {1}.termmap --documents {1}.docmap \
+             --stemmer porter2 -k 1000",
+            programs.get("evaluate_queries").unwrap().display(),
+            tmp.path().join("fwd").display(),
+            tmp.path().join("inv").display(),
+        )
+    );
 }
 
 #[test]
@@ -55,6 +84,14 @@ fn test_evaluate_wrong_type() {
         },
     )
     .is_err());
+}
+
+#[test]
+fn test_run_type() {
+    let tmp = TempDir::new("build").unwrap();
+    let MockSetup { config, .. } = mock_set_up(&tmp);
+    assert_eq!(config.runs[0].run_type(), "evaluate");
+    assert_eq!(config.runs[2].run_type(), "benchmark");
 }
 
 #[test]
