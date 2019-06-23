@@ -148,12 +148,12 @@ runs:
             topics,
             topics_format,
             qrels,
-            output_file,
+            output_basename,
         }) => {
             assert_eq!(topics, &PathBuf::from("/topics"));
             assert_eq!(qrels, &PathBuf::from("/qrels"));
             assert_eq!(topics_format, &TopicsFormat::Trec(TrecTopicField::Title));
-            assert_eq!(output_file, &PathBuf::from("/tmp/r1.out"));
+            assert_eq!(output_basename, &PathBuf::from("/tmp/r1.out"));
         }
         _ => panic!(),
     }

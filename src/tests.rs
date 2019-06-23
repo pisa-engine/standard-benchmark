@@ -64,7 +64,7 @@ pub(crate) fn mock_set_up(tmp: &TempDir) -> MockSetup {
             topics: PathBuf::from("topics"),
             topics_format: TopicsFormat::Trec(TrecTopicField::Title),
             qrels: PathBuf::from("qrels"),
-            output_file: PathBuf::from("output.trec"),
+            output_basename: PathBuf::from("output.trec"),
         }),
     });
     config.runs.push(Run {
@@ -73,7 +73,7 @@ pub(crate) fn mock_set_up(tmp: &TempDir) -> MockSetup {
             topics: PathBuf::from("topics"),
             topics_format: TopicsFormat::Simple,
             qrels: PathBuf::from("qrels"),
-            output_file: PathBuf::from("output.trec"),
+            output_basename: PathBuf::from("output.trec"),
         }),
     });
     config.runs.push(Run {
