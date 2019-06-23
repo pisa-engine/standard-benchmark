@@ -4,6 +4,7 @@ extern crate boolinator;
 extern crate downcast_rs;
 extern crate failure;
 
+use crate::command::ExtCommand;
 use crate::config::{Collection, Encoding};
 use crate::run::EvaluateData;
 use crate::*;
@@ -13,12 +14,11 @@ use failure::ResultExt;
 use std::convert::TryFrom;
 use std::fmt::Debug;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 /// Implementations of this trait execute PISA tools.
 pub trait PisaExecutor: Debug + Downcast {
     /// Builds a process object for a program with given arguments.
-    fn command(&self, program: &str) -> Command;
+    fn command(&self, program: &str) -> ExtCommand;
 }
 impl_downcast!(PisaExecutor);
 #[cfg_attr(tarpaulin, skip)] // Due to so many false positives
@@ -199,8 +199,8 @@ impl SystemPathExecutor {
     }
 }
 impl PisaExecutor for SystemPathExecutor {
-    fn command(&self, program: &str) -> Command {
-        Command::new(program)
+    fn command(&self, program: &str) -> ExtCommand {
+        ExtCommand::new(program)
     }
 }
 
@@ -244,8 +244,8 @@ impl CustomPathExecutor {
     }
 }
 impl PisaExecutor for CustomPathExecutor {
-    fn command(&self, program: &str) -> Command {
-        Command::new(&self.bin.join(program).to_str().unwrap().to_string())
+    fn command(&self, program: &str) -> ExtCommand {
+        ExtCommand::new(&self.bin.join(program).to_str().unwrap().to_string())
     }
 }
 

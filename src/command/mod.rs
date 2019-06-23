@@ -16,7 +16,7 @@ use std::{
     ffi::OsStr,
     fmt,
     path::Path,
-    process::{Command, ExitStatus, Output},
+    process::{Command, ExitStatus, Output, Stdio},
 };
 
 enum Verbosity {
@@ -118,16 +118,34 @@ impl ExtCommand {
         }
     }
 
+    /// Configuration for the child process's standard input (stdin) handle.
+    pub fn stdin<T: Into<Stdio>>(mut self, cfg: T) -> Self {
+        if let Some(cmd) = self.pipeline.last_mut() {
+            cmd.stdin(cfg);
+        } else {
+            self.command.stdin(cfg);
+        }
+        self
+    }
+
     /// Pipe another command.
-    pub fn pipe_command(mut self, mut command: Command) -> Self {
+    pub fn pipe_command(mut self, mut command: Self) -> Self {
         let (reader, writer) = pipe().expect("Failed opening a pipe");
         if let Some(cmd) = self.pipeline.last_mut() {
             cmd.stdout(writer);
         } else {
             self.command.stdout(writer);
         }
-        command.stdin(reader);
-        self.pipeline.push(command);
+        command = command.stdin(reader);
+        let Self {
+            command: first_cmd,
+            pipeline: rest,
+            ..
+        } = command;
+        self.pipeline.push(first_cmd);
+        for cmd in rest {
+            self.pipeline.push(cmd);
+        }
         self
     }
 

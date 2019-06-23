@@ -67,6 +67,19 @@ pub(crate) fn mock_set_up(tmp: &TempDir) -> MockSetup {
             output_file: PathBuf::from("output.trec"),
         }),
     });
+    config.runs.push(Run {
+        collection: Rc::clone(&config.collections[0]),
+        data: RunData::Evaluate(EvaluateData {
+            topics: PathBuf::from("topics"),
+            topics_format: TopicsFormat::Simple,
+            qrels: PathBuf::from("qrels"),
+            output_file: PathBuf::from("output.trec"),
+        }),
+    });
+    config.runs.push(Run {
+        collection: Rc::clone(&config.collections[0]),
+        data: RunData::Benchmark,
+    });
 
     let data_dir = tmp.path().join("coll").join("data");
     create_dir_all(&data_dir).unwrap();
