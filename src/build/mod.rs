@@ -3,17 +3,17 @@
 
 extern crate boolinator;
 extern crate failure;
-extern crate glob;
 extern crate log;
 
-use super::command::ExtCommand;
-use super::config::*;
-use super::error::Error;
-use super::executor::*;
-use super::*;
+use crate::command::ExtCommand;
+use crate::config::*;
+use crate::error::Error;
+use crate::executor::*;
+use crate::*;
 use boolinator::Boolinator;
 use failure::ResultExt;
 use log::{info, warn};
+use std::{fs::File, io::BufRead, io::BufReader};
 
 /// Retrieves the term count of an already built collection.
 ///
@@ -36,17 +36,29 @@ fn term_count(collection: &Collection) -> Result<usize, Error> {
     Ok(count)
 }
 
+fn merge_parsed_batches(executor: &dyn PisaExecutor, collection: &Collection) -> Result<(), Error> {
+    let batch_pattern = format!("{}.batch.*documents", collection.fwd()?);
+    let batch_doc_files = resolve_files(&batch_pattern)?;
+    let batch_count = batch_doc_files.len();
+    let document_count = batch_doc_files
+        .iter()
+        .map(|f| Ok(BufReader::new(File::open(f)?).lines().count()))
+        .fold(
+            Ok(0_usize),
+            |acc: Result<usize, Error>, count: Result<usize, Error>| Ok(acc? + count?),
+        )?;
+    ExtCommand::from(executor.command("parse_collection"))
+        .args(&["--output", collection.fwd()?])
+        .arg("merge")
+        .args(&["--batch-count", &batch_count.to_string()])
+        .args(&["--document-count", &document_count.to_string()])
+        .status()?
+        .success()
+        .ok_or("Failed to merge collection batches")?;
+    Ok(())
+}
+
 /// Builds a requeested collection, using a given executor.
-///
-/// **Note**: Some steps might be ignored if the `config` struct
-/// has been instructed to suppress some stages.
-/// ```
-/// # extern crate stdbench;
-/// # use stdbench::Stage;
-/// let stage = Stage::BuildIndex; // suppresses the entire function
-/// let stage = Stage::ParseCollection; // suppresses building forward index
-/// let stage = Stage::Invert; // suppresses building inverted index
-/// ```
 pub fn collection(
     executor: &dyn PisaExecutor,
     collection: &Collection,
@@ -68,10 +80,15 @@ pub fn collection(
         if config.is_suppressed(Stage::ParseCollection) {
             warn!("[{}] [build] [parse] Suppressed", name);
         } else {
-            stages_run.push(Stage::ParseCollection);
-            info!("[{}] [build] [parse] Parsing collection", name);
-            let pipeline = collection.kind.parse_command(&*executor, &collection)?;
-            execute!(pipeline; "Failed to parse");
+            if config.is_suppressed(Stage::ParseBatches) {
+                warn!("[{}] [build] [parse] Only merging", name);
+                merge_parsed_batches(executor, &collection)?;
+            } else {
+                stages_run.push(Stage::ParseCollection);
+                info!("[{}] [build] [parse] Parsing collection", name);
+                let parse = collection.kind.parse_command(&*executor, &collection)?;
+                execute!(parse; "Failed to parse");
+            }
             let fwd = collection.forward_index.display();
             executor.build_lexicon(format!("{}.terms", fwd), format!("{}.termmap", fwd))?;
             executor.build_lexicon(format!("{}.documents", fwd), format!("{}.docmap", fwd))?;

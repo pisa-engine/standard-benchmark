@@ -26,6 +26,10 @@ use std::rc::Rc;
 use std::str::FromStr;
 use yaml_rust::{Yaml, YamlLoader};
 
+mod yaml;
+pub use yaml::FromYaml;
+pub use yaml::ParseYaml;
+
 /// Mapping from collection name to a (reference counted pointer to) collection object.
 pub type CollectionMap = HashMap<String, Rc<Collection>>;
 
@@ -70,6 +74,11 @@ impl std::fmt::Display for Encoding {
         write!(f, "{}", self.as_ref())
     }
 }
+impl FromYaml for Encoding {
+    fn from_yaml(yaml: &Yaml) -> Result<Self, Error> {
+        Ok(Self(String::from_yaml(yaml)?))
+    }
+}
 
 /// Collection type defining parsing command.
 ///
@@ -87,6 +96,12 @@ pub trait CollectionType: Debug + Downcast + fmt::Display {
     ) -> Result<ExtCommand, Error>;
 }
 impl_downcast!(CollectionType);
+
+impl FromYaml for Box<CollectionType> {
+    fn from_yaml(yaml: &Yaml) -> Result<Self, Error> {
+        CollectionType::from(yaml.parse::<String>()?)
+    }
+}
 
 impl CollectionType {
     /// Parses a string and returns a requested collection type object,
@@ -119,7 +134,7 @@ impl CollectionType {
     }
 }
 
-fn resolve_files<P: AsRef<Path>>(path: P) -> Result<Vec<PathBuf>, Error> {
+pub(crate) fn resolve_files<P: AsRef<Path>>(path: P) -> Result<Vec<PathBuf>, Error> {
     let pattern = path.as_ref().to_str().unwrap();
     let files: Vec<_> = glob(pattern).unwrap().filter_map(Result::ok).collect();
     (!files.is_empty()).ok_or(format!(
@@ -130,12 +145,12 @@ fn resolve_files<P: AsRef<Path>>(path: P) -> Result<Vec<PathBuf>, Error> {
 }
 
 /// This is a collection such as Gov2.
-#[derive(Debug)]
+#[derive(Debug, Default, PartialEq)]
 pub struct TrecWebCollection;
 impl TrecWebCollection {
     /// Returns the object wrapped in `Box`.
     pub fn boxed() -> Box<Self> {
-        Box::new(Self {})
+        Box::new(Self::default())
     }
 }
 impl fmt::Display for TrecWebCollection {
@@ -276,60 +291,29 @@ impl PartialEq for Collection {
         )
     }
 }
-impl Collection {
-    /// Constructs a collection config from a YAML object.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// extern crate yaml_rust;
-    /// # extern crate stdbench;
-    /// # use stdbench::config;
-    /// # use stdbench::config::*;
-    /// # use std::path::PathBuf;
-    /// let yaml = yaml_rust::YamlLoader::load_from_str("
-    /// name: wapo
-    /// kind: wapo
-    /// collection_dir: /path/to/wapo
-    /// forward_index: fwd/wapo
-    /// inverted_index: /absolute/path/to/inv/wapo
-    /// encodings:
-    ///   - block_simdbp").unwrap();
-    /// let conf = config::Collection::from_yaml(&yaml[0]);
-    /// assert_eq!(
-    ///     conf,
-    ///     Ok(Collection {
-    ///         name: "wapo".to_string(),
-    ///         kind: WashingtonPostCollection::boxed(),
-    ///         collection_dir: PathBuf::from("/path/to/wapo"),
-    ///         forward_index: PathBuf::from("fwd/wapo"),
-    ///         inverted_index: PathBuf::from("/absolute/path/to/inv/wapo"),
-    ///         encodings: vec![Encoding::from("block_simdbp")]
-    ///     }
-    /// ));
-    /// ```
-    pub fn from_yaml(yaml: &Yaml) -> Result<Self, Error> {
-        let name = yaml.require_string("name")?;
-        let kind = yaml.require_string("kind")?;
-        let collection_dir = yaml.require_string("collection_dir")?;
-        let fwd = yaml["forward_index"].as_str();
-        let inv = yaml["inverted_index"].as_str();
-        let encodings = Self::parse_encodings(&yaml["encodings"])
-            .context(format!("failed to parse collection {}", name))?;
+impl FromYaml for Collection {
+    fn from_yaml(yaml: &Yaml) -> Result<Self, Error> {
+        let name: String = yaml.parse_field("name")?;
+        let forward_index: PathBuf = yaml
+            .parse_optional_field("forward_index")?
+            .unwrap_or_else(|| format!("fwd/{}", &name).into());
+        let inverted_index: PathBuf = yaml
+            .parse_optional_field("inverted_index")?
+            .unwrap_or_else(|| format!("fwd/{}", &name).into());
+        let encodings: Vec<Encoding> = yaml
+            .parse_field("encodings")
+            .context(format!("Failed to parse encodings for collection {}", name))?;
         Ok(Self {
-            name: name.to_string(),
-            kind: CollectionType::from(kind)?,
-            collection_dir: PathBuf::from(collection_dir),
-            forward_index: PathBuf::from(
-                fwd.map_or_else(|| format!("fwd/{}", &name), String::from),
-            ),
-            inverted_index: PathBuf::from(
-                inv.map_or_else(|| format!("inv/{}", &name), String::from),
-            ),
+            name,
+            kind: yaml.parse_field("kind")?,
+            collection_dir: yaml.parse_field("collection_dir")?,
+            forward_index,
+            inverted_index,
             encodings,
         })
     }
-
+}
+impl Collection {
     /// Returns a string representing forward index path.
     #[cfg_attr(tarpaulin, skip)] // Due to so many false positives
     pub fn fwd(&self) -> Result<&str, Error> {
@@ -349,26 +333,6 @@ impl Collection {
             .ok_or("Failed to parse inverted index path")?;
         Ok(inv)
     }
-
-    fn parse_encodings(yaml: &Yaml) -> Result<Vec<Encoding>, Error> {
-        let encodings = yaml.as_vec().ok_or("missing or corrupted encoding list")?;
-        let encodings: Vec<Encoding> = encodings
-            .iter()
-            .filter_map(|enc| {
-                if let Some(enc) = enc.as_str() {
-                    Some(Encoding::from(enc))
-                } else {
-                    error!("could not parse encoding: {:?}", enc);
-                    None
-                }
-            })
-            .collect();
-        if encodings.is_empty() {
-            Err("no valid encoding entries".into())
-        } else {
-            Ok(encodings)
-        }
-    }
 }
 
 /// Stores a full config for benchmark run.
@@ -384,6 +348,16 @@ pub struct Config {
     pub collections: Vec<Rc<Collection>>,
     /// Experimental runs
     pub runs: Vec<Run>,
+}
+impl FromYaml for Config {
+    fn from_yaml(yaml: &Yaml) -> Result<Self, Error> {
+        let workdir: PathBuf = yaml.parse_field("workdir")?;
+        let source: Box<dyn PisaSource> = yaml.parse_field("source")?;
+        let mut conf = Self::new(workdir, source);
+        let collections = conf.parse_collections(&yaml["collections"])?;
+        conf.parse_runs(&yaml["runs"], &collections)?;
+        Ok(conf)
+    }
 }
 impl Config {
     /// Constructs a new configuration with `workdir` and a source.
@@ -445,16 +419,7 @@ impl Config {
     {
         let content = read_to_string(&file).context("Failed to read config file")?;
         match YamlLoader::load_from_str(&content) {
-            Ok(yaml) => match (yaml[0]["workdir"].as_str(), &yaml[0]["source"]) {
-                (None, _) => Err("missing or corrupted workdir".into()),
-                (Some(workdir), source) => {
-                    let source = PisaSource::parse(source)?;
-                    let mut conf = Self::new(PathBuf::from(workdir), source);
-                    let collections = conf.parse_collections(&yaml[0]["collections"])?;
-                    conf.parse_runs(&yaml[0]["runs"], &collections)?;
-                    Ok(conf)
-                }
-            },
+            Ok(yaml) => Self::from_yaml(&yaml[0]),
             Err(_) => Err("could not parse YAML file".into()),
         }
     }
@@ -509,7 +474,7 @@ impl Config {
     }
 
     fn parse_collection(&self, yaml: &Yaml) -> Result<Collection, Error> {
-        let mut collconf = Collection::from_yaml(yaml)?;
+        let mut collconf: Collection = yaml.parse()?;
         if !collconf.forward_index.is_absolute() {
             collconf.forward_index = self.workdir.join(collconf.forward_index);
         }

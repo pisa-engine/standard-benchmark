@@ -27,6 +27,34 @@ fn test_term_count() {
 }
 
 #[test]
+#[cfg_attr(target_family, unix)]
+fn test_merge_batches() -> Result<(), Error> {
+    let tmp = TempDir::new("build").unwrap();
+    let MockSetup {
+        config,
+        executor,
+        programs,
+        outputs,
+        term_count: _,
+    } = mock_set_up(&tmp);
+    let coll = &config.collections[0];
+    println!("writing: {}", format!("{}.batch.0.documents", coll.fwd()?));
+    std::fs::write(format!("{}.batch.0.documents", coll.fwd()?), "doc1\ndoc2\n")?;
+    std::fs::write(format!("{}.batch.1.documents", coll.fwd()?), "doc3\ndoc4\n")?;
+    std::fs::write(format!("{}.batch.2.documents", coll.fwd()?), "doc5\n")?;
+    assert!(merge_parsed_batches(executor.as_ref(), coll).is_ok());
+    assert_eq!(
+        std::fs::read_to_string(outputs.get("parse_collection").unwrap()).unwrap(),
+        format!(
+            "{} --output {} merge --batch-count 3 --document-count 5",
+            programs.get("parse_collection").unwrap().display(),
+            coll.fwd()?
+        )
+    );
+    Ok(())
+}
+
+#[test]
 fn test_collection() {
     let tmp = TempDir::new("build").unwrap();
     let MockSetup {
@@ -113,6 +141,27 @@ fn test_suppressed_parse_and_invert() {
     config.suppress_stage(Stage::Invert);
     let stages = collection(executor.as_ref(), &config.collections[0], &config).unwrap();
     assert_eq!(stages, vec![Stage::BuildIndex]);
+}
+
+#[test]
+fn test_suppressed_parse_batches() -> Result<(), Error> {
+    let tmp = TempDir::new("build").unwrap();
+    let MockSetup {
+        mut config,
+        executor,
+        programs: _,
+        outputs: _,
+        term_count: _,
+    } = mock_set_up(&tmp);
+    std::fs::File::create(format!(
+        "{}.batch.0.documents",
+        &config.collections[0].fwd()?
+    ))
+    .unwrap();
+    config.suppress_stage(Stage::ParseBatches);
+    let stages = collection(executor.as_ref(), &config.collections[0], &config).unwrap();
+    assert_eq!(stages, vec![Stage::BuildIndex, Stage::Invert]);
+    Ok(())
 }
 
 #[test]
