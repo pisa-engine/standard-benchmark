@@ -56,7 +56,7 @@ where
         .collections
         .iter()
         .filter(|c| {
-            let name = c.kind.to_string();
+            let name = &c.name;
             colset.contains(&name.as_ref())
         })
         .cloned()
