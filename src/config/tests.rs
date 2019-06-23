@@ -229,7 +229,7 @@ fn test_parse_command_trecweb() -> Result<(), Error> {
              {0}/gov2/GX000/00.gz {0}/gov2/GX000/01.gz \
              {0}/gov2/GX001/02.gz {0}/gov2/GX001/03.gz\
              \n    | {0}/parse_collection -o {}/gov2/fwd -f trecweb \
-             --stemmer porter2 --content-parser html --batch-size 10000",
+             --stemmer porter2 --content-parser html --batch-size 1000",
             tmp.path().display()
         )
     );
@@ -249,7 +249,7 @@ fn test_parse_command_warc() -> Result<(), Error> {
              {0}/cw09b/en0000/00.warc.gz {0}/cw09b/en0000/01.warc.gz \
              {0}/cw09b/en0001/02.warc.gz {0}/cw09b/en0001/03.warc.gz\
              \n    | {0}/parse_collection -o {}/cw09b/fwd -f warc \
-             --stemmer porter2 --content-parser html --batch-size 10000",
+             --stemmer porter2 --content-parser html --batch-size 1000",
             tmp.path().display()
         )
     );
