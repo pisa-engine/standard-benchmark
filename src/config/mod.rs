@@ -178,7 +178,7 @@ impl CollectionType for TrecWebCollection {
                 "--content-parser",
                 "html",
                 "--batch-size",
-                "1000",
+                "10000",
             ]))
     }
 }
