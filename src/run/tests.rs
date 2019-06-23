@@ -120,6 +120,22 @@ fn test_parse_topics_format() -> Result<(), Error> {
     let yaml = YamlLoader::load_from_str("topics: /topics").unwrap();
     assert_eq!(Run::parse_topics_format(&yaml[0])?, None);
 
+    let yaml = YamlLoader::load_from_str(
+        "topics_format:
+    - list item",
+    )
+    .unwrap();
+    assert_eq!(
+        Run::parse_topics_format(&yaml[0]).err(),
+        Some(Error::from("topics_format is not a string value"))
+    );
+
+    let yaml = YamlLoader::load_from_str("topics_format: unknown").unwrap();
+    assert_eq!(
+        Run::parse_topics_format(&yaml[0]).err(),
+        Some(Error::from("invalid topics format: unknown"))
+    );
+
     let yaml = YamlLoader::load_from_str("topics_format: simple").unwrap();
     assert_eq!(
         Run::parse_topics_format(&yaml[0])?,
