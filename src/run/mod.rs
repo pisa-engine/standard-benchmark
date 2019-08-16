@@ -2,7 +2,6 @@
 extern crate failure;
 extern crate strum;
 extern crate strum_macros;
-extern crate tempdir;
 extern crate yaml_rust;
 
 use crate::config::ParseYaml;
@@ -19,7 +18,6 @@ use std::{
     rc::Rc,
 };
 use strum_macros::{Display, EnumIter, EnumString};
-use tempdir::TempDir;
 use yaml_rust::Yaml;
 use RunData::{Benchmark, Evaluate};
 
@@ -58,7 +56,7 @@ pub struct EvaluateData {
     /// file](https://www-nlpir.nist.gov/projects/trecvid/trecvid.tools/trec_eval_video/A.README)
     pub qrels: PathBuf,
     /// Where the output of `trec_eval` will be written.
-    pub output_file: PathBuf,
+    pub output_basename: PathBuf,
 }
 
 /// An experimental run
@@ -116,7 +114,7 @@ impl Run {
     {
         let topics = yaml.require_string("topics")?;
         let qrels = yaml.require_string("qrels")?;
-        let output_file = yaml.require_string("output")?;
+        let output_basename = yaml.require_string("output")?;
         Ok(Self {
             collection,
             data: Evaluate(EvaluateData {
@@ -124,7 +122,7 @@ impl Run {
                 topics_format: Self::parse_topics_format(yaml)?
                     .unwrap_or(TopicsFormat::Trec(TrecTopicField::Title)),
                 qrels: PathBuf::from(qrels),
-                output_file: match PathBuf::from(output_file) {
+                output_basename: match PathBuf::from(output_basename) {
                     ref abs if abs.is_absolute() => abs.clone(),
                     ref rel => workdir.as_ref().join(rel),
                 },
@@ -210,7 +208,7 @@ impl Run {
     ///             topics: PathBuf::new(),
     ///             topics_format: TopicsFormat::Simple,
     ///             qrels: PathBuf::new(),
-    ///             output_file: PathBuf::from("output")
+    ///             output_basename: PathBuf::from("output")
     ///         })
     ///     }.run_type(),
     ///     "evaluate"
@@ -256,18 +254,18 @@ pub fn process_run(executor: &dyn PisaExecutor, run: &Run) -> Result<(), Error> 
     match &run.data {
         Evaluate(eval) => {
             let output = evaluate(executor, &run)?;
-            let tmp = TempDir::new("evaluate_queries").expect("Failed to create temp directory");
-            let results_path = tmp.path().join("results.trec");
-            std::fs::write(&results_path, &output)?;
+            let results_output = format!("{}.results", &eval.output_basename.display());
+            let trec_eval_output = format!("{}.trec_eval", &eval.output_basename.display());
+            std::fs::write(&results_output, &output)?;
             let output = ExtCommand::new("trec_eval")
                 .arg("-q")
                 .arg("-a")
                 .arg(eval.qrels.to_str().unwrap())
-                .arg(results_path.to_str().unwrap())
+                .arg(results_output)
                 .output()?;
             let eval_result =
                 String::from_utf8(output.stdout).context("unable to parse result of trec_eval")?;
-            fs::write(&eval.output_file, eval_result)?;
+            fs::write(trec_eval_output, eval_result)?;
             Ok(())
         }
         Benchmark => {
