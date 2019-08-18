@@ -6,7 +6,7 @@ extern crate failure;
 
 use crate::command::ExtCommand;
 use crate::config::{Collection, Encoding};
-use crate::run::EvaluateData;
+use crate::run::{BenchmarkData, EvaluateData};
 use crate::*;
 use boolinator::Boolinator;
 use downcast_rs::Downcast;
@@ -180,6 +180,44 @@ impl dyn PisaExecutor {
             .args(&["-k", "1000"])
             .output()
             .context("Failed to run evaluate_queries")?;
+        if output.status.success() {
+            Ok(String::from_utf8(output.stdout).unwrap())
+        } else {
+            Err(Error::from(String::from_utf8(output.stderr).unwrap()))
+        }
+    }
+
+    /// Runs `queries` command.
+    pub fn benchmark<S>(
+        &self,
+        collection: &Collection,
+        run_data: &BenchmarkData, // To be used in the future
+        queries: S,
+    ) -> Result<String, Error>
+    where
+        S: AsRef<str>,
+    {
+        let inv = collection
+            .inverted_index
+            .to_str()
+            .ok_or("Failed to parse inverted index path")?;
+        let fwd = collection
+            .forward_index
+            .to_str()
+            .ok_or("Failed to parse forward index path")?;
+        let encoding = &run_data.encoding;
+        let output = self
+            .command("queries")
+            .args(&["-t", encoding.as_ref()])
+            .args(&["-i", &format!("{}.{}", inv, encoding)])
+            .args(&["-w", &format!("{}.wand", inv)])
+            .args(&["-a", "wand"])
+            .args(&["-q", queries.as_ref()])
+            .args(&["--terms", &format!("{}.termmap", fwd)])
+            .args(&["--stemmer", "porter2"])
+            .args(&["-k", "1000"])
+            .output()
+            .context("Failed to run queries")?;
         if output.status.success() {
             Ok(String::from_utf8(output.stdout).unwrap())
         } else {

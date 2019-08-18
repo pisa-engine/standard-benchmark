@@ -51,3 +51,15 @@ fn test_int_from_yaml() {
         Err(Error::from("Cannot parse as integer: String(\"str\")"))
     );
 }
+
+#[test]
+fn test_parse_optional_field() {
+    let yaml = YamlLoader::load_from_str(
+        "key1: val1
+key:
+  - a
+  - b",
+    )
+    .unwrap();
+    assert_eq!(&yaml[0].parse_optional_field::<String>("key3"), &Ok(None));
+}

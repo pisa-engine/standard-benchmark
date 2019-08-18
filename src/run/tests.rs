@@ -1,9 +1,10 @@
 extern crate tempdir;
 extern crate yaml_rust;
 
-use super::{evaluate, Run, RunData, TopicsFormat, TrecTopicField};
+use super::{evaluate, BenchmarkData, Run, RunData, TopicsFormat, TrecTopicField};
 use crate::config::{Collection, CollectionMap, Encoding, WashingtonPostCollection};
 use crate::error::Error;
+use crate::run::benchmark;
 use crate::tests::{mock_set_up, MockSetup};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -80,7 +81,12 @@ fn test_evaluate_wrong_type() {
         executor.as_ref(),
         &Run {
             collection: Rc::clone(&config.collections[0]),
-            data: RunData::Benchmark
+            data: RunData::Benchmark(BenchmarkData {
+                topics: PathBuf::new(),
+                topics_format: TopicsFormat::Simple,
+                output_basename: PathBuf::new(),
+                encoding: "simdbp".into()
+            })
         },
     )
     .is_err());
@@ -183,6 +189,35 @@ trec_topic_field: narr",
     assert_eq!(
         Run::parse_topics_format(&yaml[0])?,
         Some(TopicsFormat::Trec(TrecTopicField::Narrative))
+    );
+    Ok(())
+}
+
+#[test]
+#[cfg_attr(target_family, unix)]
+fn test_benchmark() -> Result<(), Error> {
+    let tmp = TempDir::new("run").unwrap();
+    let MockSetup {
+        config,
+        executor,
+        programs,
+        outputs,
+        term_count: _,
+    } = mock_set_up(&tmp);
+    benchmark(executor.as_ref(), config.runs.last().unwrap())?;
+    assert_eq!(
+        std::fs::read_to_string(outputs.get("queries").unwrap()).unwrap(),
+        format!(
+            "{0} -t block_simdbp -i {2}.block_simdbp -w {2}.wand -a wand \
+             -q topics.title --terms {1}.termmap --stemmer porter2 -k 1000",
+            programs.get("queries").unwrap().display(),
+            tmp.path().join("fwd").display(),
+            tmp.path().join("inv").display(),
+        )
+    );
+    assert_eq!(
+        benchmark(executor.as_ref(), &config.runs[0]).err(),
+        Some(Error::from("Run of type evaluate cannot be benchmarked"))
     );
     Ok(())
 }

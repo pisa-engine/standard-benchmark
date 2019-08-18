@@ -7,7 +7,7 @@ extern crate yaml_rust;
 use crate::config::ParseYaml;
 use crate::{
     command::ExtCommand,
-    config::{Collection, CollectionMap, YamlExt},
+    config::{Collection, CollectionMap, Encoding, YamlExt},
     error::Error,
     executor::PisaExecutor,
 };
@@ -59,6 +59,19 @@ pub struct EvaluateData {
     pub output_basename: PathBuf,
 }
 
+/// Data for evaluation run.
+#[derive(Debug, Clone)]
+pub struct BenchmarkData {
+    /// Path to topics in TREC format
+    pub topics: PathBuf,
+    /// Format of the file with topics (queries)
+    pub topics_format: TopicsFormat,
+    /// Where the query times will be stored
+    pub output_basename: PathBuf,
+    /// Index encoding used
+    pub encoding: Encoding,
+}
+
 /// An experimental run
 #[derive(Debug, Clone)]
 pub struct Run {
@@ -74,7 +87,7 @@ pub enum RunData {
     /// Report selected precision metrics.
     Evaluate(EvaluateData),
     /// Report query times
-    Benchmark,
+    Benchmark(BenchmarkData),
 }
 impl RunData {
     /// Cast to `EvaluateData` if run is `Evaluate`, or return `None`.
@@ -130,6 +143,39 @@ impl Run {
         })
     }
 
+    fn parse_benchmark<P>(
+        yaml: &Yaml,
+        collection: Rc<Collection>,
+        workdir: P,
+    ) -> Result<Self, Error>
+    where
+        P: AsRef<Path>,
+    {
+        let topics = yaml.require_string("topics")?;
+        let output_basename = yaml.require_string("output")?;
+        let encoding = yaml.parse_field("encoding")?;
+        if !collection.encodings.contains(&encoding) {
+            Err(Error::from(format!(
+                "Encoding {} not found in collection",
+                encoding
+            )))
+        } else {
+            Ok(Self {
+                collection,
+                data: Benchmark(BenchmarkData {
+                    topics: PathBuf::from(topics),
+                    topics_format: Self::parse_topics_format(yaml)?
+                        .unwrap_or(TopicsFormat::Trec(TrecTopicField::Title)),
+                    output_basename: match PathBuf::from(output_basename) {
+                        ref abs if abs.is_absolute() => abs.clone(),
+                        ref rel => workdir.as_ref().join(rel),
+                    },
+                    encoding,
+                }),
+            })
+        }
+    }
+
     /// Constructs from a YAML object, given a collection map.
     ///
     /// Fails if failed to parse, or when the referenced collection is missing form
@@ -177,6 +223,7 @@ impl Run {
         let typ: String = yaml.parse_field("type")?;
         match typ.as_ref() {
             "evaluate" => Self::parse_evaluate(yaml, Rc::clone(collection), workdir),
+            "benchmark" => Self::parse_benchmark(yaml, Rc::clone(collection), workdir),
             unknown => Err(Error::from(format!("unknown run type: {}", unknown))),
         }
     }
@@ -216,7 +263,12 @@ impl Run {
     /// assert_eq!(
     ///     Run {
     ///         collection,
-    ///         data: RunData::Benchmark
+    ///         data: RunData::Benchmark(BenchmarkData {
+    ///             topics: PathBuf::new(),
+    ///             topics_format: TopicsFormat::Simple,
+    ///             output_basename: PathBuf::from("output"),
+    ///             encoding: "simdbp".into(),
+    ///         })
     ///     }.run_type(),
     ///     "benchmark"
     /// );
@@ -224,8 +276,21 @@ impl Run {
     pub fn run_type(&self) -> String {
         match &self.data {
             Evaluate(_) => String::from("evaluate"),
-            Benchmark => String::from("benchmark"),
+            Benchmark(_) => String::from("benchmark"),
         }
+    }
+}
+
+fn queries_path(
+    format: &TopicsFormat,
+    topics: &Path,
+    executor: &dyn PisaExecutor,
+) -> Result<String, Error> {
+    if let TopicsFormat::Trec(field) = format {
+        executor.extract_topics(&topics, &topics)?;
+        Ok(format!("{}.{}", &topics.display(), field))
+    } else {
+        Ok(topics.to_str().unwrap().to_string())
     }
 }
 
@@ -234,16 +299,26 @@ impl Run {
 /// Fails if the run is not of type `Evaluate`.
 pub fn evaluate(executor: &dyn PisaExecutor, run: &Run) -> Result<String, Error> {
     if let Evaluate(data) = &run.data {
-        let queries = if let TopicsFormat::Trec(field) = &data.topics_format {
-            executor.extract_topics(&data.topics, &data.topics)?;
-            format!("{}.{}", &data.topics.display(), field)
-        } else {
-            data.topics.to_str().unwrap().to_string()
-        };
+        let queries = queries_path(&data.topics_format, data.topics.as_path(), executor)?;
         executor.evaluate_queries(&run.collection, &data, &queries)
     } else {
         Err(Error::from(format!(
             "Run of type {} cannot be evaluated",
+            run.run_type()
+        )))
+    }
+}
+
+/// Runs query benchmark for on a given executor, for a given run.
+///
+/// Fails if the run is not of type `Benchmark`.
+pub fn benchmark(executor: &dyn PisaExecutor, run: &Run) -> Result<String, Error> {
+    if let Benchmark(data) = &run.data {
+        let queries = queries_path(&data.topics_format, data.topics.as_path(), executor)?;
+        executor.benchmark(&run.collection, &data, &queries)
+    } else {
+        Err(Error::from(format!(
+            "Run of type {} cannot be benchmarked",
             run.run_type()
         )))
     }
@@ -268,8 +343,10 @@ pub fn process_run(executor: &dyn PisaExecutor, run: &Run) -> Result<(), Error> 
             fs::write(trec_eval_output, eval_result)?;
             Ok(())
         }
-        Benchmark => {
-            unimplemented!("Benchmark runs are currently unimplemented");
+        Benchmark(bench) => {
+            let output = benchmark(executor, &run)?;
+            fs::write(&bench.output_basename, output)?;
+            Ok(())
         }
     }
 }
