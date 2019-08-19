@@ -224,6 +224,7 @@ impl dyn PisaExecutor {
             .args(&["--terms", &format!("{}.termmap", fwd)])
             .args(&["--stemmer", "porter2"])
             .args(&["-k", "1000"])
+            .args(&["--scorer", "bm25"])
             .output()
             .context("Failed to run queries")?;
         if output.status.success() {
