@@ -96,7 +96,7 @@ fn test_collection() {
     assert_eq!(
         std::fs::read_to_string(outputs.get("create_wand_data").unwrap()).unwrap(),
         format!(
-            "{0} -c {1} -o {1}.wand",
+            "{0} -c {1} -o {1}.wand --scorer bm25",
             programs.get("create_wand_data").unwrap().display(),
             tmp.path().join("inv").display(),
         )

@@ -216,7 +216,8 @@ fn test_process_run() {
         std::fs::read_to_string(outputs.get("evaluate_queries").unwrap()).unwrap(),
         format!(
             "{0} -t block_simdbp -i {1}.block_simdbp -w {1}.wand -a wand -q {3}.title \
-             --terms {2}.termmap --documents {2}.docmap --stemmer porter2 -k 1000",
+             --terms {2}.termmap --documents {2}.docmap --stemmer porter2 -k 1000 \
+             --scorer bm25",
             programs.get("evaluate_queries").unwrap().display(),
             run.collection.inv().unwrap(),
             run.collection.fwd().unwrap(),

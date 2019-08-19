@@ -7,7 +7,7 @@ extern crate yaml_rust;
 use crate::config::ParseYaml;
 use crate::{
     command::ExtCommand,
-    config::{Collection, CollectionMap, Encoding, YamlExt},
+    config::{Algorithm, Collection, CollectionMap, Encoding, YamlExt},
     error::Error,
     executor::PisaExecutor,
 };
@@ -70,6 +70,8 @@ pub struct BenchmarkData {
     pub output_basename: PathBuf,
     /// Index encoding used
     pub encoding: Encoding,
+    /// List of algorithms to test
+    pub algorithms: Vec<Algorithm>,
 }
 
 /// An experimental run
@@ -154,6 +156,7 @@ impl Run {
         let topics = yaml.require_string("topics")?;
         let output_basename = yaml.require_string("output")?;
         let encoding = yaml.parse_field("encoding")?;
+        let algorithms: Vec<Algorithm> = yaml.parse_field("algorithms")?;
         if !collection.encodings.contains(&encoding) {
             Err(Error::from(format!(
                 "Encoding {} not found in collection",
@@ -171,6 +174,7 @@ impl Run {
                         ref rel => workdir.as_ref().join(rel),
                     },
                     encoding,
+                    algorithms,
                 }),
             })
         }
@@ -268,6 +272,7 @@ impl Run {
     ///             topics_format: TopicsFormat::Simple,
     ///             output_basename: PathBuf::from("output"),
     ///             encoding: "simdbp".into(),
+    ///             algorithms: vec!["wand".into()],
     ///         })
     ///     }.run_type(),
     ///     "benchmark"
@@ -315,7 +320,18 @@ pub fn evaluate(executor: &dyn PisaExecutor, run: &Run) -> Result<String, Error>
 pub fn benchmark(executor: &dyn PisaExecutor, run: &Run) -> Result<String, Error> {
     if let Benchmark(data) = &run.data {
         let queries = queries_path(&data.topics_format, data.topics.as_path(), executor)?;
-        executor.benchmark(&run.collection, &data, &queries)
+        let results: Result<Vec<_>, Error> = data
+            .algorithms
+            .iter()
+            .map(|algorithm| {
+                executor.benchmark(&run.collection, &data.encoding, algorithm, &queries)
+            })
+            .collect::<Result<Vec<_>, Error>>();
+        Ok(results?.iter().fold(String::new(), |mut acc, x| {
+            acc.push_str(&x);
+            acc.push('\n');
+            acc
+        }))
     } else {
         Err(Error::from(format!(
             "Run of type {} cannot be benchmarked",

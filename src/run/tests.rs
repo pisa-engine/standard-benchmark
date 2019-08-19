@@ -29,7 +29,7 @@ fn test_evaluate() {
         format!(
             "{0} -t block_simdbp -i {2}.block_simdbp -w {2}.wand -a wand \
              -q topics.title --terms {1}.termmap --documents {1}.docmap \
-             --stemmer porter2 -k 1000",
+             --stemmer porter2 -k 1000 --scorer bm25",
             programs.get("evaluate_queries").unwrap().display(),
             tmp.path().join("fwd").display(),
             tmp.path().join("inv").display(),
@@ -58,7 +58,7 @@ fn test_evaluate_simple_topics() {
         format!(
             "{0} -t block_simdbp -i {2}.block_simdbp -w {2}.wand -a wand \
              -q topics --terms {1}.termmap --documents {1}.docmap \
-             --stemmer porter2 -k 1000",
+             --stemmer porter2 -k 1000 --scorer bm25",
             programs.get("evaluate_queries").unwrap().display(),
             tmp.path().join("fwd").display(),
             tmp.path().join("inv").display(),
@@ -85,7 +85,8 @@ fn test_evaluate_wrong_type() {
                 topics: PathBuf::new(),
                 topics_format: TopicsFormat::Simple,
                 output_basename: PathBuf::new(),
-                encoding: "simdbp".into()
+                encoding: "simdbp".into(),
+                algorithms: vec!["wand".into()]
             })
         },
     )
@@ -209,7 +210,8 @@ fn test_benchmark() -> Result<(), Error> {
         std::fs::read_to_string(outputs.get("queries").unwrap()).unwrap(),
         format!(
             "{0} -t block_simdbp -i {2}.block_simdbp -w {2}.wand -a wand \
-             -q topics.title --terms {1}.termmap --stemmer porter2 -k 1000",
+             -q topics.title --terms {1}.termmap --stemmer porter2 -k 1000 \
+             --scorer bm25",
             programs.get("queries").unwrap().display(),
             tmp.path().join("fwd").display(),
             tmp.path().join("inv").display(),

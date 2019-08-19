@@ -83,6 +83,7 @@ pub(crate) fn mock_set_up(tmp: &TempDir) -> MockSetup {
             topics_format: TopicsFormat::Trec(TrecTopicField::Title),
             output_basename: PathBuf::from("bench.json"),
             encoding: "block_simdbp".into(),
+            algorithms: vec!["wand".into()],
         }),
     });
 
