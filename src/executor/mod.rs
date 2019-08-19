@@ -94,7 +94,14 @@ impl dyn PisaExecutor {
             .to_str()
             .ok_or("Failed to parse inverted index path")?;
         self.command("create_wand_data")
-            .args(&["-c", inv, "-o", &format!("{}.wand", inv)])
+            .args(&[
+                "-c",
+                inv,
+                "-o",
+                &format!("{}.wand", inv),
+                "--scorer",
+                "bm25",
+            ])
             .status()
             .context("Failed to execute create_wand_data")?
             .success()
@@ -178,6 +185,7 @@ impl dyn PisaExecutor {
             .args(&["--documents", &format!("{}.docmap", fwd)])
             .args(&["--stemmer", "porter2"])
             .args(&["-k", "1000"])
+            .args(&["--scorer", "bm25"])
             .output()
             .context("Failed to run evaluate_queries")?;
         if output.status.success() {
