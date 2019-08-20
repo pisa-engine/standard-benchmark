@@ -209,7 +209,7 @@ fn test_process_run() {
         format!(
             "{0} -i {1} -o {1}",
             programs.get("extract_topics").unwrap().display(),
-            eval.topics.display()
+            eval.query_data.topics.display()
         )
     );
     assert_eq!(
@@ -217,11 +217,14 @@ fn test_process_run() {
         format!(
             "{0} -t block_simdbp -i {1}.block_simdbp -w {1}.wand -a wand -q {3}.title \
              --terms {2}.termmap --documents {2}.docmap --stemmer porter2 -k 1000 \
+             --scorer bm25\
+             {0} -t block_simdbp -i {1}.block_simdbp -w {1}.wand -a maxscore -q {3}.title \
+             --terms {2}.termmap --documents {2}.docmap --stemmer porter2 -k 1000 \
              --scorer bm25",
             programs.get("evaluate_queries").unwrap().display(),
             run.collection.inv().unwrap(),
             run.collection.fwd().unwrap(),
-            eval.topics.display()
+            eval.query_data.topics.display()
         )
     );
 }

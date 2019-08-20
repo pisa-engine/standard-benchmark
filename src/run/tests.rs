@@ -1,7 +1,7 @@
 extern crate tempdir;
 extern crate yaml_rust;
 
-use super::{evaluate, BenchmarkData, Run, RunData, TopicsFormat, TrecTopicField};
+use super::{evaluate, QueryData, Run, RunData, TopicsFormat, TrecTopicField};
 use crate::config::{Collection, CollectionMap, Encoding, WashingtonPostCollection};
 use crate::error::Error;
 use crate::run::benchmark;
@@ -28,6 +28,9 @@ fn test_evaluate() {
         std::fs::read_to_string(outputs.get("evaluate_queries").unwrap()).unwrap(),
         format!(
             "{0} -t block_simdbp -i {2}.block_simdbp -w {2}.wand -a wand \
+             -q topics.title --terms {1}.termmap --documents {1}.docmap \
+             --stemmer porter2 -k 1000 --scorer bm25\
+             {0} -t block_simdbp -i {2}.block_simdbp -w {2}.wand -a maxscore \
              -q topics.title --terms {1}.termmap --documents {1}.docmap \
              --stemmer porter2 -k 1000 --scorer bm25",
             programs.get("evaluate_queries").unwrap().display(),
@@ -58,6 +61,9 @@ fn test_evaluate_simple_topics() {
         format!(
             "{0} -t block_simdbp -i {2}.block_simdbp -w {2}.wand -a wand \
              -q topics --terms {1}.termmap --documents {1}.docmap \
+             --stemmer porter2 -k 1000 --scorer bm25\
+             {0} -t block_simdbp -i {2}.block_simdbp -w {2}.wand -a maxscore \
+             -q topics --terms {1}.termmap --documents {1}.docmap \
              --stemmer porter2 -k 1000 --scorer bm25",
             programs.get("evaluate_queries").unwrap().display(),
             tmp.path().join("fwd").display(),
@@ -81,7 +87,7 @@ fn test_evaluate_wrong_type() {
         executor.as_ref(),
         &Run {
             collection: Rc::clone(&config.collections[0]),
-            data: RunData::Benchmark(BenchmarkData {
+            data: RunData::Benchmark(QueryData {
                 topics: PathBuf::new(),
                 topics_format: TopicsFormat::Simple,
                 output_basename: PathBuf::new(),
@@ -210,6 +216,9 @@ fn test_benchmark() -> Result<(), Error> {
         std::fs::read_to_string(outputs.get("queries").unwrap()).unwrap(),
         format!(
             "{0} -t block_simdbp -i {2}.block_simdbp -w {2}.wand -a wand \
+             -q topics.title --terms {1}.termmap --stemmer porter2 -k 1000 \
+             --scorer bm25\
+             {0} -t block_simdbp -i {2}.block_simdbp -w {2}.wand -a maxscore \
              -q topics.title --terms {1}.termmap --stemmer porter2 -k 1000 \
              --scorer bm25",
             programs.get("queries").unwrap().display(),

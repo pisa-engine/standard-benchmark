@@ -45,33 +45,29 @@ pub enum TopicsFormat {
     Trec(TrecTopicField),
 }
 
-/// Data for evaluation run.
+/// Data related to executing queries.
 #[derive(Debug, Clone)]
-pub struct EvaluateData {
+pub struct QueryData {
     /// Path to topics in TREC format
     pub topics: PathBuf,
     /// Format of the file with topics (queries)
     pub topics_format: TopicsFormat,
-    /// Path to a [TREC qrels
-    /// file](https://www-nlpir.nist.gov/projects/trecvid/trecvid.tools/trec_eval_video/A.README)
-    pub qrels: PathBuf,
-    /// Where the output of `trec_eval` will be written.
-    pub output_basename: PathBuf,
-}
-
-/// Data for evaluation run.
-#[derive(Debug, Clone)]
-pub struct BenchmarkData {
-    /// Path to topics in TREC format
-    pub topics: PathBuf,
-    /// Format of the file with topics (queries)
-    pub topics_format: TopicsFormat,
-    /// Where the query times will be stored
+    /// Where the output of a run will be written.
     pub output_basename: PathBuf,
     /// Index encoding used
     pub encoding: Encoding,
     /// List of algorithms to test
     pub algorithms: Vec<Algorithm>,
+}
+
+/// Data for evaluation run.
+#[derive(Debug, Clone)]
+pub struct EvaluateData {
+    /// Query-related data
+    pub query_data: QueryData,
+    /// Path to a [TREC qrels
+    /// file](https://www-nlpir.nist.gov/projects/trecvid/trecvid.tools/trec_eval_video/A.README)
+    pub qrels: PathBuf,
 }
 
 /// An experimental run
@@ -89,7 +85,7 @@ pub enum RunData {
     /// Report selected precision metrics.
     Evaluate(EvaluateData),
     /// Report query times
-    Benchmark(BenchmarkData),
+    Benchmark(QueryData),
 }
 impl RunData {
     /// Cast to `EvaluateData` if run is `Evaluate`, or return `None`.
@@ -123,33 +119,11 @@ impl Run {
         }
     }
 
-    fn parse_evaluate<P>(yaml: &Yaml, collection: Rc<Collection>, workdir: P) -> Result<Self, Error>
-    where
-        P: AsRef<Path>,
-    {
-        let topics = yaml.require_string("topics")?;
-        let qrels = yaml.require_string("qrels")?;
-        let output_basename = yaml.require_string("output")?;
-        Ok(Self {
-            collection,
-            data: Evaluate(EvaluateData {
-                topics: PathBuf::from(topics),
-                topics_format: Self::parse_topics_format(yaml)?
-                    .unwrap_or(TopicsFormat::Trec(TrecTopicField::Title)),
-                qrels: PathBuf::from(qrels),
-                output_basename: match PathBuf::from(output_basename) {
-                    ref abs if abs.is_absolute() => abs.clone(),
-                    ref rel => workdir.as_ref().join(rel),
-                },
-            }),
-        })
-    }
-
-    fn parse_benchmark<P>(
+    fn parse_query_data<P>(
         yaml: &Yaml,
         collection: Rc<Collection>,
         workdir: P,
-    ) -> Result<Self, Error>
+    ) -> Result<QueryData, Error>
     where
         P: AsRef<Path>,
     {
@@ -163,21 +137,48 @@ impl Run {
                 encoding
             )))
         } else {
-            Ok(Self {
-                collection,
-                data: Benchmark(BenchmarkData {
-                    topics: PathBuf::from(topics),
-                    topics_format: Self::parse_topics_format(yaml)?
-                        .unwrap_or(TopicsFormat::Trec(TrecTopicField::Title)),
-                    output_basename: match PathBuf::from(output_basename) {
-                        ref abs if abs.is_absolute() => abs.clone(),
-                        ref rel => workdir.as_ref().join(rel),
-                    },
-                    encoding,
-                    algorithms,
-                }),
+            Ok(QueryData {
+                topics: PathBuf::from(topics),
+                topics_format: Self::parse_topics_format(yaml)?
+                    .unwrap_or(TopicsFormat::Trec(TrecTopicField::Title)),
+                output_basename: match PathBuf::from(output_basename) {
+                    ref abs if abs.is_absolute() => abs.clone(),
+                    ref rel => workdir.as_ref().join(rel),
+                },
+                encoding,
+                algorithms,
             })
         }
+    }
+
+    fn parse_evaluate<P>(yaml: &Yaml, collection: Rc<Collection>, workdir: P) -> Result<Self, Error>
+    where
+        P: AsRef<Path>,
+    {
+        let query_data = Self::parse_query_data(yaml, Rc::clone(&collection), workdir)?;
+        let qrels = yaml.require_string("qrels")?;
+        Ok(Self {
+            collection,
+            data: Evaluate(EvaluateData {
+                query_data,
+                qrels: PathBuf::from(qrels),
+            }),
+        })
+    }
+
+    fn parse_benchmark<P>(
+        yaml: &Yaml,
+        collection: Rc<Collection>,
+        workdir: P,
+    ) -> Result<Self, Error>
+    where
+        P: AsRef<Path>,
+    {
+        let query_data = Self::parse_query_data(yaml, Rc::clone(&collection), workdir)?;
+        Ok(Self {
+            collection,
+            data: Benchmark(query_data),
+        })
     }
 
     /// Constructs from a YAML object, given a collection map.
@@ -196,10 +197,13 @@ impl Run {
     /// # use std::rc::Rc;
     /// let yaml = yaml_rust::YamlLoader::load_from_str("
     /// collection: wapo
-    /// type: evaluate
+    /// type: benchmark
     /// topics: /path/to/query/topics
     /// qrels: /path/to/query/relevance
-    /// output: /output").unwrap();
+    /// output: /output
+    /// encoding: block_simdbp
+    /// algorithms:
+    ///   - wand").unwrap();
     ///
     /// let mut collections: CollectionMap = HashMap::new();
     /// let run = Run::parse(&yaml[0], &collections, PathBuf::from("work"));
@@ -256,10 +260,14 @@ impl Run {
     ///     Run {
     ///         collection: Rc::clone(&collection),
     ///         data: RunData::Evaluate(EvaluateData {
-    ///             topics: PathBuf::new(),
-    ///             topics_format: TopicsFormat::Simple,
+    ///             query_data: QueryData {
+    ///                 topics: PathBuf::new(),
+    ///                 topics_format: TopicsFormat::Simple,
+    ///                 output_basename: PathBuf::from("output"),
+    ///                 encoding: "simdbp".into(),
+    ///                 algorithms: vec!["wand".into()],
+    ///             },
     ///             qrels: PathBuf::new(),
-    ///             output_basename: PathBuf::from("output")
     ///         })
     ///     }.run_type(),
     ///     "evaluate"
@@ -267,7 +275,7 @@ impl Run {
     /// assert_eq!(
     ///     Run {
     ///         collection,
-    ///         data: RunData::Benchmark(BenchmarkData {
+    ///         data: RunData::Benchmark(QueryData {
     ///             topics: PathBuf::new(),
     ///             topics_format: TopicsFormat::Simple,
     ///             output_basename: PathBuf::from("output"),
@@ -302,10 +310,25 @@ fn queries_path(
 /// Runs query evaluation for on a given executor, for a given run.
 ///
 /// Fails if the run is not of type `Evaluate`.
-pub fn evaluate(executor: &dyn PisaExecutor, run: &Run) -> Result<String, Error> {
+pub fn evaluate(executor: &dyn PisaExecutor, run: &Run) -> Result<Vec<String>, Error> {
     if let Evaluate(data) = &run.data {
-        let queries = queries_path(&data.topics_format, data.topics.as_path(), executor)?;
-        executor.evaluate_queries(&run.collection, &data, &queries)
+        let queries = queries_path(
+            &data.query_data.topics_format,
+            data.query_data.topics.as_path(),
+            executor,
+        )?;
+        data.query_data
+            .algorithms
+            .iter()
+            .map(|algorithm| {
+                executor.evaluate_queries(
+                    &run.collection,
+                    &data.query_data.encoding,
+                    algorithm,
+                    &queries,
+                )
+            })
+            .collect()
     } else {
         Err(Error::from(format!(
             "Run of type {} cannot be evaluated",
@@ -329,7 +352,6 @@ pub fn benchmark(executor: &dyn PisaExecutor, run: &Run) -> Result<String, Error
             .collect::<Result<Vec<_>, Error>>();
         Ok(results?.iter().fold(String::new(), |mut acc, x| {
             acc.push_str(&x);
-            acc.push('\n');
             acc
         }))
     } else {
@@ -344,19 +366,24 @@ pub fn benchmark(executor: &dyn PisaExecutor, run: &Run) -> Result<String, Error
 pub fn process_run(executor: &dyn PisaExecutor, run: &Run) -> Result<(), Error> {
     match &run.data {
         Evaluate(eval) => {
-            let output = evaluate(executor, &run)?;
-            let results_output = format!("{}.results", &eval.output_basename.display());
-            let trec_eval_output = format!("{}.trec_eval", &eval.output_basename.display());
-            std::fs::write(&results_output, &output)?;
-            let output = ExtCommand::new("trec_eval")
-                .arg("-q")
-                .arg("-a")
-                .arg(eval.qrels.to_str().unwrap())
-                .arg(results_output)
-                .output()?;
-            let eval_result =
-                String::from_utf8(output.stdout).context("unable to parse result of trec_eval")?;
-            fs::write(trec_eval_output, eval_result)?;
+            for (output, algorithm) in evaluate(executor, &run)?
+                .iter()
+                .zip(&eval.query_data.algorithms)
+            {
+                let base_path = &eval.query_data.output_basename.display();
+                let results_output = format!("{}.{}.results", base_path, algorithm);
+                let trec_eval_output = format!("{}.{}.trec_eval", base_path, algorithm);
+                std::fs::write(&results_output, &output)?;
+                let output = ExtCommand::new("trec_eval")
+                    .arg("-q")
+                    .arg("-a")
+                    .arg(eval.qrels.to_str().unwrap())
+                    .arg(results_output)
+                    .output()?;
+                let eval_result = String::from_utf8(output.stdout)
+                    .context("unable to parse result of trec_eval")?;
+                fs::write(trec_eval_output, eval_result)?;
+            }
             Ok(())
         }
         Benchmark(bench) => {

@@ -6,7 +6,6 @@ extern crate failure;
 
 use crate::command::ExtCommand;
 use crate::config::{Algorithm, Collection, Encoding};
-use crate::run::EvaluateData;
 use crate::*;
 use boolinator::Boolinator;
 use downcast_rs::Downcast;
@@ -159,7 +158,8 @@ impl dyn PisaExecutor {
     pub fn evaluate_queries<S>(
         &self,
         collection: &Collection,
-        _run_data: &EvaluateData, // To be used in the future
+        encoding: &Encoding,
+        algorithm: &Algorithm,
         queries: S,
     ) -> Result<String, Error>
     where
@@ -173,13 +173,12 @@ impl dyn PisaExecutor {
             .forward_index
             .to_str()
             .ok_or("Failed to parse forward index path")?;
-        let encoding = &collection.encodings.first().unwrap();
         let output = self
             .command("evaluate_queries")
             .args(&["-t", encoding.as_ref()])
             .args(&["-i", &format!("{}.{}", inv, encoding)])
             .args(&["-w", &format!("{}.wand", inv)])
-            .args(&["-a", "wand"])
+            .args(&["-a", algorithm.as_ref()])
             .args(&["-q", queries.as_ref()])
             .args(&["--terms", &format!("{}.termmap", fwd)])
             .args(&["--documents", &format!("{}.docmap", fwd)])

@@ -2,7 +2,7 @@ extern crate tempdir;
 
 use super::config::*;
 use super::executor::PisaExecutor;
-use super::run::{BenchmarkData, EvaluateData, Run, RunData, TopicsFormat, TrecTopicField};
+use super::run::{EvaluateData, QueryData, Run, RunData, TopicsFormat, TrecTopicField};
 use super::source::*;
 use super::*;
 use boolinator::Boolinator;
@@ -61,29 +61,37 @@ pub(crate) fn mock_set_up(tmp: &TempDir) -> MockSetup {
     config.runs.push(Run {
         collection: Rc::clone(&config.collections[0]),
         data: RunData::Evaluate(EvaluateData {
-            topics: PathBuf::from("topics"),
-            topics_format: TopicsFormat::Trec(TrecTopicField::Title),
+            query_data: QueryData {
+                topics: PathBuf::from("topics"),
+                topics_format: TopicsFormat::Trec(TrecTopicField::Title),
+                output_basename: PathBuf::from("output.trec"),
+                encoding: "block_simdbp".into(),
+                algorithms: vec!["wand".into(), "maxscore".into()],
+            },
             qrels: PathBuf::from("qrels"),
-            output_basename: PathBuf::from("output.trec"),
         }),
     });
     config.runs.push(Run {
         collection: Rc::clone(&config.collections[0]),
         data: RunData::Evaluate(EvaluateData {
-            topics: PathBuf::from("topics"),
-            topics_format: TopicsFormat::Simple,
+            query_data: QueryData {
+                topics: PathBuf::from("topics"),
+                topics_format: TopicsFormat::Simple,
+                output_basename: PathBuf::from("output.trec"),
+                encoding: "block_simdbp".into(),
+                algorithms: vec!["wand".into(), "maxscore".into()],
+            },
             qrels: PathBuf::from("qrels"),
-            output_basename: PathBuf::from("output.trec"),
         }),
     });
     config.runs.push(Run {
         collection: Rc::clone(&config.collections[0]),
-        data: RunData::Benchmark(BenchmarkData {
+        data: RunData::Benchmark(QueryData {
             topics: PathBuf::from("topics"),
             topics_format: TopicsFormat::Trec(TrecTopicField::Title),
             output_basename: PathBuf::from("bench.json"),
             encoding: "block_simdbp".into(),
-            algorithms: vec!["wand".into()],
+            algorithms: vec!["wand".into(), "maxscore".into()],
         }),
     });
 
