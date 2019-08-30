@@ -208,6 +208,11 @@ fn init_git(config: &Config, url: &str, branch: &str) -> Result<Box<dyn PisaExec
         let clone = ExtCommand::new("git").args(&["clone", &url, dir.to_str().unwrap()]);
         execute!(clone; "cloning failed");
     };
+    ExtCommand::new("git")
+        .arg("pull")
+        .status()?
+        .success()
+        .ok_or("Failed to pull")?;
     let build_dir = dir.join("build");
     create_dir_all(&build_dir).context("Could not create build directory")?;
 
