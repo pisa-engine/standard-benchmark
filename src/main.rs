@@ -45,6 +45,11 @@ pub fn app<'a, 'b>() -> App<'a, 'b> {
                 .multiple(true)
                 .takes_value(true),
         )
+        .arg(
+            Arg::with_name("no-scorer")
+                .help("No --scorer in runs (for backwards compatibility)")
+                .long("no-scorer"),
+        )
 }
 
 fn filter_collections<'a, I>(mut config: &mut Config, collections: I)
