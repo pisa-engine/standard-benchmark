@@ -23,7 +23,7 @@ fn test_evaluate() {
         outputs,
         term_count: _,
     } = mock_set_up(&tmp);
-    evaluate(executor.as_ref(), config.runs.first().unwrap()).unwrap();
+    evaluate(executor.as_ref(), config.runs.first().unwrap(), true).unwrap();
     assert_eq!(
         std::fs::read_to_string(outputs.get("evaluate_queries").unwrap()).unwrap(),
         format!(
@@ -39,7 +39,7 @@ fn test_evaluate() {
         )
     );
     assert_eq!(
-        evaluate(executor.as_ref(), &config.runs[2]).err(),
+        evaluate(executor.as_ref(), &config.runs[2], true).err(),
         Some(Error::from("Run of type benchmark cannot be evaluated"))
     )
 }
@@ -55,7 +55,7 @@ fn test_evaluate_simple_topics() {
         outputs,
         term_count: _,
     } = mock_set_up(&tmp);
-    evaluate(executor.as_ref(), &config.runs[1]).unwrap();
+    evaluate(executor.as_ref(), &config.runs[1], true).unwrap();
     assert_eq!(
         std::fs::read_to_string(outputs.get("evaluate_queries").unwrap()).unwrap(),
         format!(
@@ -95,6 +95,7 @@ fn test_evaluate_wrong_type() {
                 algorithms: vec!["wand".into()]
             })
         },
+        true
     )
     .is_err());
 }
@@ -211,7 +212,7 @@ fn test_benchmark() -> Result<(), Error> {
         outputs,
         term_count: _,
     } = mock_set_up(&tmp);
-    benchmark(executor.as_ref(), config.runs.last().unwrap())?;
+    benchmark(executor.as_ref(), config.runs.last().unwrap(), true)?;
     assert_eq!(
         std::fs::read_to_string(outputs.get("queries").unwrap()).unwrap(),
         format!(
@@ -227,7 +228,7 @@ fn test_benchmark() -> Result<(), Error> {
         )
     );
     assert_eq!(
-        benchmark(executor.as_ref(), &config.runs[0]).err(),
+        benchmark(executor.as_ref(), &config.runs[0], true).err(),
         Some(Error::from("Run of type evaluate cannot be benchmarked"))
     );
     Ok(())

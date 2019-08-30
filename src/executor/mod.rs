@@ -84,7 +84,7 @@ impl dyn PisaExecutor {
     }
 
     /// Runs `create_freq_index` command.
-    pub fn create_wand_data<P>(&self, inverted_index: P) -> Result<(), Error>
+    pub fn create_wand_data<P>(&self, inverted_index: P, use_scorer: bool) -> Result<(), Error>
     where
         P: AsRef<Path>,
     {
@@ -92,15 +92,15 @@ impl dyn PisaExecutor {
             .as_ref()
             .to_str()
             .ok_or("Failed to parse inverted index path")?;
-        self.command("create_wand_data")
-            .args(&[
-                "-c",
-                inv,
-                "-o",
-                &format!("{}.wand", inv),
-                "--scorer",
-                "bm25",
-            ])
+        let command =
+            self.command("create_wand_data")
+                .args(&["-c", inv, "-o", &format!("{}.wand", inv)]);
+        let command = if use_scorer {
+            command.args(&["--scorer", "bm25"])
+        } else {
+            command
+        };
+        command
             .status()
             .context("Failed to execute create_wand_data")?
             .success()
@@ -161,6 +161,7 @@ impl dyn PisaExecutor {
         encoding: &Encoding,
         algorithm: &Algorithm,
         queries: S,
+        use_scorer: bool,
     ) -> Result<String, Error>
     where
         S: AsRef<str>,
@@ -173,7 +174,7 @@ impl dyn PisaExecutor {
             .forward_index
             .to_str()
             .ok_or("Failed to parse forward index path")?;
-        let output = self
+        let command = self
             .command("evaluate_queries")
             .args(&["-t", encoding.as_ref()])
             .args(&["-i", &format!("{}.{}", inv, encoding)])
@@ -183,10 +184,13 @@ impl dyn PisaExecutor {
             .args(&["--terms", &format!("{}.termmap", fwd)])
             .args(&["--documents", &format!("{}.docmap", fwd)])
             .args(&["--stemmer", "porter2"])
-            .args(&["-k", "1000"])
-            .args(&["--scorer", "bm25"])
-            .output()
-            .context("Failed to run evaluate_queries")?;
+            .args(&["-k", "1000"]);
+        let command = if use_scorer {
+            command.args(&["--scorer", "bm25"])
+        } else {
+            command
+        };
+        let output = command.output().context("Failed to run evaluate_queries")?;
         if output.status.success() {
             Ok(String::from_utf8(output.stdout).unwrap())
         } else {
@@ -201,6 +205,7 @@ impl dyn PisaExecutor {
         encoding: &Encoding,
         algorithm: &Algorithm,
         queries: S,
+        use_scorer: bool,
     ) -> Result<String, Error>
     where
         S: AsRef<str>,
@@ -213,7 +218,7 @@ impl dyn PisaExecutor {
             .forward_index
             .to_str()
             .ok_or("Failed to parse forward index path")?;
-        let output = self
+        let command = self
             .command("queries")
             .args(&["-t", encoding.as_ref()])
             .args(&["-i", &format!("{}.{}", inv, encoding)])
@@ -222,10 +227,13 @@ impl dyn PisaExecutor {
             .args(&["-q", queries.as_ref()])
             .args(&["--terms", &format!("{}.termmap", fwd)])
             .args(&["--stemmer", "porter2"])
-            .args(&["-k", "1000"])
-            .args(&["--scorer", "bm25"])
-            .output()
-            .context("Failed to run queries")?;
+            .args(&["-k", "1000"]);
+        let command = if use_scorer {
+            command.args(&["--scorer", "bm25"])
+        } else {
+            command
+        };
+        let output = command.output().context("Failed to run queries")?;
         if output.status.success() {
             Ok(String::from_utf8(output.stdout).unwrap())
         } else {

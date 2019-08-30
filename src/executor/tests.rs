@@ -71,7 +71,7 @@ fn test_create_wand_data() {
         |setup: &MockSetup| {
             setup
                 .executor
-                .create_wand_data(&setup.config.collections[0].inverted_index)
+                .create_wand_data(&setup.config.collections[0].inverted_index, true)
         },
     );
 }
@@ -202,7 +202,7 @@ fn test_process_run() {
         term_count: _,
     } = mock_set_up(&tmp);
     let run = &config.runs[0];
-    process_run(executor.as_ref(), run).unwrap();
+    process_run(executor.as_ref(), run, true).unwrap();
     let eval = run.data.as_evaluate().unwrap();
     assert_eq!(
         std::fs::read_to_string(outputs.get("extract_topics").unwrap()).unwrap(),

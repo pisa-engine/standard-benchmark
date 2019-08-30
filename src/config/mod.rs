@@ -381,6 +381,8 @@ pub struct Config {
     pub collections: Vec<Rc<Collection>>,
     /// Experimental runs
     pub runs: Vec<Run>,
+    /// Use --scorer for runs; `false` for version of PISA before multiple scorers
+    pub use_scorer: bool,
 }
 impl FromYaml for Config {
     fn from_yaml(yaml: &Yaml) -> Result<Self, Error> {
@@ -405,6 +407,7 @@ impl Config {
             suppressed: HashSet::new(),
             collections: Vec::new(),
             runs: Vec::new(),
+            use_scorer: true,
         }
     }
 

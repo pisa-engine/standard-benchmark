@@ -121,7 +121,7 @@ impl Run {
 
     fn parse_query_data<P>(
         yaml: &Yaml,
-        collection: Rc<Collection>,
+        collection: &Rc<Collection>,
         workdir: P,
     ) -> Result<QueryData, Error>
     where
@@ -131,12 +131,7 @@ impl Run {
         let output_basename = yaml.require_string("output")?;
         let encoding = yaml.parse_field("encoding")?;
         let algorithms: Vec<Algorithm> = yaml.parse_field("algorithms")?;
-        if !collection.encodings.contains(&encoding) {
-            Err(Error::from(format!(
-                "Encoding {} not found in collection",
-                encoding
-            )))
-        } else {
+        if collection.encodings.contains(&encoding) {
             Ok(QueryData {
                 topics: PathBuf::from(topics),
                 topics_format: Self::parse_topics_format(yaml)?
@@ -148,6 +143,11 @@ impl Run {
                 encoding,
                 algorithms,
             })
+        } else {
+            Err(Error::from(format!(
+                "Encoding {} not found in collection",
+                encoding
+            )))
         }
     }
 
@@ -155,7 +155,7 @@ impl Run {
     where
         P: AsRef<Path>,
     {
-        let query_data = Self::parse_query_data(yaml, Rc::clone(&collection), workdir)?;
+        let query_data = Self::parse_query_data(yaml, &collection, workdir)?;
         let qrels = yaml.require_string("qrels")?;
         Ok(Self {
             collection,
@@ -174,7 +174,7 @@ impl Run {
     where
         P: AsRef<Path>,
     {
-        let query_data = Self::parse_query_data(yaml, Rc::clone(&collection), workdir)?;
+        let query_data = Self::parse_query_data(yaml, &collection, workdir)?;
         Ok(Self {
             collection,
             data: Benchmark(query_data),
@@ -310,7 +310,11 @@ fn queries_path(
 /// Runs query evaluation for on a given executor, for a given run.
 ///
 /// Fails if the run is not of type `Evaluate`.
-pub fn evaluate(executor: &dyn PisaExecutor, run: &Run) -> Result<Vec<String>, Error> {
+pub fn evaluate(
+    executor: &dyn PisaExecutor,
+    run: &Run,
+    use_scorer: bool,
+) -> Result<Vec<String>, Error> {
     if let Evaluate(data) = &run.data {
         let queries = queries_path(
             &data.query_data.topics_format,
@@ -326,6 +330,7 @@ pub fn evaluate(executor: &dyn PisaExecutor, run: &Run) -> Result<Vec<String>, E
                     &data.query_data.encoding,
                     algorithm,
                     &queries,
+                    use_scorer,
                 )
             })
             .collect()
@@ -340,14 +345,24 @@ pub fn evaluate(executor: &dyn PisaExecutor, run: &Run) -> Result<Vec<String>, E
 /// Runs query benchmark for on a given executor, for a given run.
 ///
 /// Fails if the run is not of type `Benchmark`.
-pub fn benchmark(executor: &dyn PisaExecutor, run: &Run) -> Result<String, Error> {
+pub fn benchmark(
+    executor: &dyn PisaExecutor,
+    run: &Run,
+    use_scorer: bool,
+) -> Result<String, Error> {
     if let Benchmark(data) = &run.data {
         let queries = queries_path(&data.topics_format, data.topics.as_path(), executor)?;
         let results: Result<Vec<_>, Error> = data
             .algorithms
             .iter()
             .map(|algorithm| {
-                executor.benchmark(&run.collection, &data.encoding, algorithm, &queries)
+                executor.benchmark(
+                    &run.collection,
+                    &data.encoding,
+                    algorithm,
+                    &queries,
+                    use_scorer,
+                )
             })
             .collect::<Result<Vec<_>, Error>>();
         Ok(results?.iter().fold(String::new(), |mut acc, x| {
@@ -363,10 +378,10 @@ pub fn benchmark(executor: &dyn PisaExecutor, run: &Run) -> Result<String, Error
 }
 
 /// Process a run (e.g., single precision evaluation or benchmark).
-pub fn process_run(executor: &dyn PisaExecutor, run: &Run) -> Result<(), Error> {
+pub fn process_run(executor: &dyn PisaExecutor, run: &Run, use_scorer: bool) -> Result<(), Error> {
     match &run.data {
         Evaluate(eval) => {
-            for (output, algorithm) in evaluate(executor, &run)?
+            for (output, algorithm) in evaluate(executor, &run, use_scorer)?
                 .iter()
                 .zip(&eval.query_data.algorithms)
             {
@@ -387,7 +402,7 @@ pub fn process_run(executor: &dyn PisaExecutor, run: &Run) -> Result<(), Error> 
             Ok(())
         }
         Benchmark(bench) => {
-            let output = benchmark(executor, &run)?;
+            let output = benchmark(executor, &run, use_scorer)?;
             fs::write(&bench.output_basename, output)?;
             Ok(())
         }

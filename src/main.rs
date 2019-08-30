@@ -94,6 +94,9 @@ fn parse_config(args: Vec<String>) -> Result<Config, Error> {
     if let Some(collections) = matches.values_of("collections") {
         filter_collections(&mut config, collections);
     }
+    if matches.is_present("no-scorer") {
+        config.use_scorer = false;
+    }
     Ok(config)
 }
 
@@ -110,7 +113,7 @@ fn run() -> Result<(), Error> {
     }
     for run in &config.runs {
         info!("{:?}", run);
-        process_run(executor.as_ref(), run)?;
+        process_run(executor.as_ref(), run, config.use_scorer)?;
     }
     Ok(())
 }
