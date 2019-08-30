@@ -30,7 +30,13 @@ fn test_evaluate() {
             "{0} -t block_simdbp -i {2}.block_simdbp -w {2}.wand -a wand \
              -q topics.title --terms {1}.termmap --documents {1}.docmap \
              --stemmer porter2 -k 1000 --scorer bm25\
+             {0} -t block_qmx -i {2}.block_qmx -w {2}.wand -a wand \
+             -q topics.title --terms {1}.termmap --documents {1}.docmap \
+             --stemmer porter2 -k 1000 --scorer bm25\
              {0} -t block_simdbp -i {2}.block_simdbp -w {2}.wand -a maxscore \
+             -q topics.title --terms {1}.termmap --documents {1}.docmap \
+             --stemmer porter2 -k 1000 --scorer bm25\
+             {0} -t block_qmx -i {2}.block_qmx -w {2}.wand -a maxscore \
              -q topics.title --terms {1}.termmap --documents {1}.docmap \
              --stemmer porter2 -k 1000 --scorer bm25",
             programs.get("evaluate_queries").unwrap().display(),
@@ -91,7 +97,7 @@ fn test_evaluate_wrong_type() {
                 topics: PathBuf::new(),
                 topics_format: TopicsFormat::Simple,
                 output_basename: PathBuf::new(),
-                encoding: "simdbp".into(),
+                encodings: vec!["simdbp".into()],
                 algorithms: vec!["wand".into()]
             })
         },

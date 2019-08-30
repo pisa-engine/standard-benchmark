@@ -12,6 +12,7 @@ use crate::{
     executor::PisaExecutor,
 };
 use failure::ResultExt;
+use itertools::iproduct;
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -55,7 +56,7 @@ pub struct QueryData {
     /// Where the output of a run will be written.
     pub output_basename: PathBuf,
     /// Index encoding used
-    pub encoding: Encoding,
+    pub encodings: Vec<Encoding>,
     /// List of algorithms to test
     pub algorithms: Vec<Algorithm>,
 }
@@ -129,9 +130,13 @@ impl Run {
     {
         let topics = yaml.require_string("topics")?;
         let output_basename = yaml.require_string("output")?;
-        let encoding = yaml.parse_field("encoding")?;
+        let encodings: Vec<Encoding> = yaml.parse_field("encodings")?;
         let algorithms: Vec<Algorithm> = yaml.parse_field("algorithms")?;
-        if collection.encodings.contains(&encoding) {
+        let unknown: Vec<&Encoding> = encodings
+            .iter()
+            .filter(|enc| !collection.encodings.contains(enc))
+            .collect();
+        if unknown.is_empty() {
             Ok(QueryData {
                 topics: PathBuf::from(topics),
                 topics_format: Self::parse_topics_format(yaml)?
@@ -140,13 +145,13 @@ impl Run {
                     ref abs if abs.is_absolute() => abs.clone(),
                     ref rel => workdir.as_ref().join(rel),
                 },
-                encoding,
+                encodings,
                 algorithms,
             })
         } else {
             Err(Error::from(format!(
-                "Encoding {} not found in collection",
-                encoding
+                "Encodings not found in collection: {:?}",
+                unknown
             )))
         }
     }
@@ -201,7 +206,8 @@ impl Run {
     /// topics: /path/to/query/topics
     /// qrels: /path/to/query/relevance
     /// output: /output
-    /// encoding: block_simdbp
+    /// encodings:
+    ///   - block_simdbp
     /// algorithms:
     ///   - wand").unwrap();
     ///
@@ -264,7 +270,7 @@ impl Run {
     ///                 topics: PathBuf::new(),
     ///                 topics_format: TopicsFormat::Simple,
     ///                 output_basename: PathBuf::from("output"),
-    ///                 encoding: "simdbp".into(),
+    ///                 encodings: vec!["simdbp".into()],
     ///                 algorithms: vec!["wand".into()],
     ///             },
     ///             qrels: PathBuf::new(),
@@ -279,7 +285,7 @@ impl Run {
     ///             topics: PathBuf::new(),
     ///             topics_format: TopicsFormat::Simple,
     ///             output_basename: PathBuf::from("output"),
-    ///             encoding: "simdbp".into(),
+    ///             encodings: vec!["simdbp".into()],
     ///             algorithms: vec!["wand".into()],
     ///         })
     ///     }.run_type(),
@@ -321,13 +327,11 @@ pub fn evaluate(
             data.query_data.topics.as_path(),
             executor,
         )?;
-        data.query_data
-            .algorithms
-            .iter()
-            .map(|algorithm| {
+        iproduct!(&data.query_data.algorithms, &data.query_data.encodings)
+            .map(|(algorithm, encoding)| {
                 executor.evaluate_queries(
                     &run.collection,
-                    &data.query_data.encoding,
+                    encoding,
                     algorithm,
                     &queries,
                     use_scorer,
@@ -352,17 +356,9 @@ pub fn benchmark(
 ) -> Result<String, Error> {
     if let Benchmark(data) = &run.data {
         let queries = queries_path(&data.topics_format, data.topics.as_path(), executor)?;
-        let results: Result<Vec<_>, Error> = data
-            .algorithms
-            .iter()
-            .map(|algorithm| {
-                executor.benchmark(
-                    &run.collection,
-                    &data.encoding,
-                    algorithm,
-                    &queries,
-                    use_scorer,
-                )
+        let results = iproduct!(&data.algorithms, &data.encodings)
+            .map(|(algorithm, encoding)| {
+                executor.benchmark(&run.collection, encoding, algorithm, &queries, use_scorer)
             })
             .collect::<Result<Vec<_>, Error>>();
         Ok(results?.iter().fold(String::new(), |mut acc, x| {
