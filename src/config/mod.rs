@@ -80,6 +80,39 @@ impl FromYaml for Encoding {
     }
 }
 
+/// Algorithm type.
+///
+/// Intentionally implemented as a string to keep up with any PISA changes.
+/// Assuming that any PISA tool using this will report an invalid encoding for us.
+#[derive(Debug, PartialEq, Clone)]
+pub struct Algorithm(String);
+impl FromStr for Algorithm {
+    type Err = Error;
+    fn from_str(name: &str) -> Result<Self, Error> {
+        Ok(Self(name.to_string()))
+    }
+}
+impl From<&str> for Algorithm {
+    fn from(name: &str) -> Self {
+        Self(name.to_string())
+    }
+}
+impl AsRef<str> for Algorithm {
+    fn as_ref(&self) -> &str {
+        self.0.as_str()
+    }
+}
+impl std::fmt::Display for Algorithm {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.as_ref())
+    }
+}
+impl FromYaml for Algorithm {
+    fn from_yaml(yaml: &Yaml) -> Result<Self, Error> {
+        Ok(Self(String::from_yaml(yaml)?))
+    }
+}
+
 /// Collection type defining parsing command.
 ///
 /// Building an index is identical for any collection, but how the files
@@ -348,6 +381,8 @@ pub struct Config {
     pub collections: Vec<Rc<Collection>>,
     /// Experimental runs
     pub runs: Vec<Run>,
+    /// Use --scorer for runs; `false` for version of PISA before multiple scorers
+    pub use_scorer: bool,
 }
 impl FromYaml for Config {
     fn from_yaml(yaml: &Yaml) -> Result<Self, Error> {
@@ -372,6 +407,7 @@ impl Config {
             suppressed: HashSet::new(),
             collections: Vec::new(),
             runs: Vec::new(),
+            use_scorer: true,
         }
     }
 

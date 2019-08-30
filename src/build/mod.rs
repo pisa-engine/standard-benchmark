@@ -109,7 +109,7 @@ pub fn collection(
         for encoding in &collection.encodings {
             executor.compress(&collection.inverted_index, encoding)?;
         }
-        executor.create_wand_data(&collection.inverted_index)?;
+        executor.create_wand_data(&collection.inverted_index, config.use_scorer)?;
     }
     Ok(stages_run)
 }

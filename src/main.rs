@@ -45,6 +45,11 @@ pub fn app<'a, 'b>() -> App<'a, 'b> {
                 .multiple(true)
                 .takes_value(true),
         )
+        .arg(
+            Arg::with_name("no-scorer")
+                .help("No --scorer in runs (for backwards compatibility)")
+                .long("no-scorer"),
+        )
 }
 
 fn filter_collections<'a, I>(mut config: &mut Config, collections: I)
@@ -94,6 +99,9 @@ fn parse_config(args: Vec<String>) -> Result<Config, Error> {
     if let Some(collections) = matches.values_of("collections") {
         filter_collections(&mut config, collections);
     }
+    if matches.is_present("no-scorer") {
+        config.use_scorer = false;
+    }
     Ok(config)
 }
 
@@ -110,7 +118,7 @@ fn run() -> Result<(), Error> {
     }
     for run in &config.runs {
         info!("{:?}", run);
-        process_run(executor.as_ref(), run)?;
+        process_run(executor.as_ref(), run, config.use_scorer)?;
     }
     Ok(())
 }

@@ -1,9 +1,10 @@
 extern crate tempdir;
 extern crate yaml_rust;
 
-use super::{evaluate, Run, RunData, TopicsFormat, TrecTopicField};
+use super::{evaluate, QueryData, Run, RunData, TopicsFormat, TrecTopicField};
 use crate::config::{Collection, CollectionMap, Encoding, WashingtonPostCollection};
 use crate::error::Error;
+use crate::run::benchmark;
 use crate::tests::{mock_set_up, MockSetup};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -22,20 +23,23 @@ fn test_evaluate() {
         outputs,
         term_count: _,
     } = mock_set_up(&tmp);
-    evaluate(executor.as_ref(), config.runs.first().unwrap()).unwrap();
+    evaluate(executor.as_ref(), config.runs.first().unwrap(), true).unwrap();
     assert_eq!(
         std::fs::read_to_string(outputs.get("evaluate_queries").unwrap()).unwrap(),
         format!(
             "{0} -t block_simdbp -i {2}.block_simdbp -w {2}.wand -a wand \
              -q topics.title --terms {1}.termmap --documents {1}.docmap \
-             --stemmer porter2 -k 1000",
+             --stemmer porter2 -k 1000 --scorer bm25\
+             {0} -t block_simdbp -i {2}.block_simdbp -w {2}.wand -a maxscore \
+             -q topics.title --terms {1}.termmap --documents {1}.docmap \
+             --stemmer porter2 -k 1000 --scorer bm25",
             programs.get("evaluate_queries").unwrap().display(),
             tmp.path().join("fwd").display(),
             tmp.path().join("inv").display(),
         )
     );
     assert_eq!(
-        evaluate(executor.as_ref(), &config.runs[2]).err(),
+        evaluate(executor.as_ref(), &config.runs[2], true).err(),
         Some(Error::from("Run of type benchmark cannot be evaluated"))
     )
 }
@@ -51,13 +55,16 @@ fn test_evaluate_simple_topics() {
         outputs,
         term_count: _,
     } = mock_set_up(&tmp);
-    evaluate(executor.as_ref(), &config.runs[1]).unwrap();
+    evaluate(executor.as_ref(), &config.runs[1], true).unwrap();
     assert_eq!(
         std::fs::read_to_string(outputs.get("evaluate_queries").unwrap()).unwrap(),
         format!(
             "{0} -t block_simdbp -i {2}.block_simdbp -w {2}.wand -a wand \
              -q topics --terms {1}.termmap --documents {1}.docmap \
-             --stemmer porter2 -k 1000",
+             --stemmer porter2 -k 1000 --scorer bm25\
+             {0} -t block_simdbp -i {2}.block_simdbp -w {2}.wand -a maxscore \
+             -q topics --terms {1}.termmap --documents {1}.docmap \
+             --stemmer porter2 -k 1000 --scorer bm25",
             programs.get("evaluate_queries").unwrap().display(),
             tmp.path().join("fwd").display(),
             tmp.path().join("inv").display(),
@@ -80,8 +87,15 @@ fn test_evaluate_wrong_type() {
         executor.as_ref(),
         &Run {
             collection: Rc::clone(&config.collections[0]),
-            data: RunData::Benchmark
+            data: RunData::Benchmark(QueryData {
+                topics: PathBuf::new(),
+                topics_format: TopicsFormat::Simple,
+                output_basename: PathBuf::new(),
+                encoding: "simdbp".into(),
+                algorithms: vec!["wand".into()]
+            })
         },
+        true
     )
     .is_err());
 }
@@ -183,6 +197,39 @@ trec_topic_field: narr",
     assert_eq!(
         Run::parse_topics_format(&yaml[0])?,
         Some(TopicsFormat::Trec(TrecTopicField::Narrative))
+    );
+    Ok(())
+}
+
+#[test]
+#[cfg_attr(target_family, unix)]
+fn test_benchmark() -> Result<(), Error> {
+    let tmp = TempDir::new("run").unwrap();
+    let MockSetup {
+        config,
+        executor,
+        programs,
+        outputs,
+        term_count: _,
+    } = mock_set_up(&tmp);
+    benchmark(executor.as_ref(), config.runs.last().unwrap(), true)?;
+    assert_eq!(
+        std::fs::read_to_string(outputs.get("queries").unwrap()).unwrap(),
+        format!(
+            "{0} -t block_simdbp -i {2}.block_simdbp -w {2}.wand -a wand \
+             -q topics.title --terms {1}.termmap --stemmer porter2 -k 1000 \
+             --scorer bm25\
+             {0} -t block_simdbp -i {2}.block_simdbp -w {2}.wand -a maxscore \
+             -q topics.title --terms {1}.termmap --stemmer porter2 -k 1000 \
+             --scorer bm25",
+            programs.get("queries").unwrap().display(),
+            tmp.path().join("fwd").display(),
+            tmp.path().join("inv").display(),
+        )
+    );
+    assert_eq!(
+        benchmark(executor.as_ref(), &config.runs[0], true).err(),
+        Some(Error::from("Run of type evaluate cannot be benchmarked"))
     );
     Ok(())
 }

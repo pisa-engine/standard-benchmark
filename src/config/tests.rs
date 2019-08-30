@@ -3,7 +3,7 @@ extern crate yaml_rust;
 
 use super::*;
 use crate::config::ParseYaml;
-use crate::run::{EvaluateData, RunData, TopicsFormat, TrecTopicField};
+use crate::run::{EvaluateData, QueryData, RunData, TopicsFormat, TrecTopicField};
 use crate::tests::*;
 use tempdir::TempDir;
 use yaml_rust::YamlLoader;
@@ -120,7 +120,10 @@ runs:
       type: evaluate
       topics: /topics
       qrels: /qrels
-      output: r1.out";
+      output: r1.out
+      encoding: block_simdbp
+      algorithms:
+        - wand";
     std::fs::write(&config_file, yml)?;
     let conf = Config::from_file(config_file).unwrap();
     assert_eq!(conf.workdir, PathBuf::from("/tmp"));
@@ -145,15 +148,22 @@ runs:
     assert_eq!(conf.runs[0].collection.name, "wapo");
     match &conf.runs[0].data {
         RunData::Evaluate(EvaluateData {
-            topics,
-            topics_format,
+            query_data:
+                QueryData {
+                    topics,
+                    topics_format,
+                    output_basename,
+                    encoding,
+                    algorithms,
+                },
             qrels,
-            output_basename,
         }) => {
             assert_eq!(topics, &PathBuf::from("/topics"));
             assert_eq!(qrels, &PathBuf::from("/qrels"));
             assert_eq!(topics_format, &TopicsFormat::Trec(TrecTopicField::Title));
             assert_eq!(output_basename, &PathBuf::from("/tmp/r1.out"));
+            assert_eq!(encoding, &"block_simdbp".into());
+            assert_eq!(algorithms, &vec!["wand".into()]);
         }
         _ => panic!(),
     }

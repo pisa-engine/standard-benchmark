@@ -7,7 +7,7 @@ extern crate yaml_rust;
 use crate::config::ParseYaml;
 use crate::{
     command::ExtCommand,
-    config::{Collection, CollectionMap, YamlExt},
+    config::{Algorithm, Collection, CollectionMap, Encoding, YamlExt},
     error::Error,
     executor::PisaExecutor,
 };
@@ -45,18 +45,29 @@ pub enum TopicsFormat {
     Trec(TrecTopicField),
 }
 
-/// Data for evaluation run.
+/// Data related to executing queries.
 #[derive(Debug, Clone)]
-pub struct EvaluateData {
+pub struct QueryData {
     /// Path to topics in TREC format
     pub topics: PathBuf,
     /// Format of the file with topics (queries)
     pub topics_format: TopicsFormat,
+    /// Where the output of a run will be written.
+    pub output_basename: PathBuf,
+    /// Index encoding used
+    pub encoding: Encoding,
+    /// List of algorithms to test
+    pub algorithms: Vec<Algorithm>,
+}
+
+/// Data for evaluation run.
+#[derive(Debug, Clone)]
+pub struct EvaluateData {
+    /// Query-related data
+    pub query_data: QueryData,
     /// Path to a [TREC qrels
     /// file](https://www-nlpir.nist.gov/projects/trecvid/trecvid.tools/trec_eval_video/A.README)
     pub qrels: PathBuf,
-    /// Where the output of `trec_eval` will be written.
-    pub output_basename: PathBuf,
 }
 
 /// An experimental run
@@ -74,7 +85,7 @@ pub enum RunData {
     /// Report selected precision metrics.
     Evaluate(EvaluateData),
     /// Report query times
-    Benchmark,
+    Benchmark(QueryData),
 }
 impl RunData {
     /// Cast to `EvaluateData` if run is `Evaluate`, or return `None`.
@@ -108,25 +119,65 @@ impl Run {
         }
     }
 
-    fn parse_evaluate<P>(yaml: &Yaml, collection: Rc<Collection>, workdir: P) -> Result<Self, Error>
+    fn parse_query_data<P>(
+        yaml: &Yaml,
+        collection: &Rc<Collection>,
+        workdir: P,
+    ) -> Result<QueryData, Error>
     where
         P: AsRef<Path>,
     {
         let topics = yaml.require_string("topics")?;
-        let qrels = yaml.require_string("qrels")?;
         let output_basename = yaml.require_string("output")?;
-        Ok(Self {
-            collection,
-            data: Evaluate(EvaluateData {
+        let encoding = yaml.parse_field("encoding")?;
+        let algorithms: Vec<Algorithm> = yaml.parse_field("algorithms")?;
+        if collection.encodings.contains(&encoding) {
+            Ok(QueryData {
                 topics: PathBuf::from(topics),
                 topics_format: Self::parse_topics_format(yaml)?
                     .unwrap_or(TopicsFormat::Trec(TrecTopicField::Title)),
-                qrels: PathBuf::from(qrels),
                 output_basename: match PathBuf::from(output_basename) {
                     ref abs if abs.is_absolute() => abs.clone(),
                     ref rel => workdir.as_ref().join(rel),
                 },
+                encoding,
+                algorithms,
+            })
+        } else {
+            Err(Error::from(format!(
+                "Encoding {} not found in collection",
+                encoding
+            )))
+        }
+    }
+
+    fn parse_evaluate<P>(yaml: &Yaml, collection: Rc<Collection>, workdir: P) -> Result<Self, Error>
+    where
+        P: AsRef<Path>,
+    {
+        let query_data = Self::parse_query_data(yaml, &collection, workdir)?;
+        let qrels = yaml.require_string("qrels")?;
+        Ok(Self {
+            collection,
+            data: Evaluate(EvaluateData {
+                query_data,
+                qrels: PathBuf::from(qrels),
             }),
+        })
+    }
+
+    fn parse_benchmark<P>(
+        yaml: &Yaml,
+        collection: Rc<Collection>,
+        workdir: P,
+    ) -> Result<Self, Error>
+    where
+        P: AsRef<Path>,
+    {
+        let query_data = Self::parse_query_data(yaml, &collection, workdir)?;
+        Ok(Self {
+            collection,
+            data: Benchmark(query_data),
         })
     }
 
@@ -146,10 +197,13 @@ impl Run {
     /// # use std::rc::Rc;
     /// let yaml = yaml_rust::YamlLoader::load_from_str("
     /// collection: wapo
-    /// type: evaluate
+    /// type: benchmark
     /// topics: /path/to/query/topics
     /// qrels: /path/to/query/relevance
-    /// output: /output").unwrap();
+    /// output: /output
+    /// encoding: block_simdbp
+    /// algorithms:
+    ///   - wand").unwrap();
     ///
     /// let mut collections: CollectionMap = HashMap::new();
     /// let run = Run::parse(&yaml[0], &collections, PathBuf::from("work"));
@@ -177,6 +231,7 @@ impl Run {
         let typ: String = yaml.parse_field("type")?;
         match typ.as_ref() {
             "evaluate" => Self::parse_evaluate(yaml, Rc::clone(collection), workdir),
+            "benchmark" => Self::parse_benchmark(yaml, Rc::clone(collection), workdir),
             unknown => Err(Error::from(format!("unknown run type: {}", unknown))),
         }
     }
@@ -205,10 +260,14 @@ impl Run {
     ///     Run {
     ///         collection: Rc::clone(&collection),
     ///         data: RunData::Evaluate(EvaluateData {
-    ///             topics: PathBuf::new(),
-    ///             topics_format: TopicsFormat::Simple,
+    ///             query_data: QueryData {
+    ///                 topics: PathBuf::new(),
+    ///                 topics_format: TopicsFormat::Simple,
+    ///                 output_basename: PathBuf::from("output"),
+    ///                 encoding: "simdbp".into(),
+    ///                 algorithms: vec!["wand".into()],
+    ///             },
     ///             qrels: PathBuf::new(),
-    ///             output_basename: PathBuf::from("output")
     ///         })
     ///     }.run_type(),
     ///     "evaluate"
@@ -216,7 +275,13 @@ impl Run {
     /// assert_eq!(
     ///     Run {
     ///         collection,
-    ///         data: RunData::Benchmark
+    ///         data: RunData::Benchmark(QueryData {
+    ///             topics: PathBuf::new(),
+    ///             topics_format: TopicsFormat::Simple,
+    ///             output_basename: PathBuf::from("output"),
+    ///             encoding: "simdbp".into(),
+    ///             algorithms: vec!["wand".into()],
+    ///         })
     ///     }.run_type(),
     ///     "benchmark"
     /// );
@@ -224,23 +289,51 @@ impl Run {
     pub fn run_type(&self) -> String {
         match &self.data {
             Evaluate(_) => String::from("evaluate"),
-            Benchmark => String::from("benchmark"),
+            Benchmark(_) => String::from("benchmark"),
         }
+    }
+}
+
+fn queries_path(
+    format: &TopicsFormat,
+    topics: &Path,
+    executor: &dyn PisaExecutor,
+) -> Result<String, Error> {
+    if let TopicsFormat::Trec(field) = format {
+        executor.extract_topics(&topics, &topics)?;
+        Ok(format!("{}.{}", &topics.display(), field))
+    } else {
+        Ok(topics.to_str().unwrap().to_string())
     }
 }
 
 /// Runs query evaluation for on a given executor, for a given run.
 ///
 /// Fails if the run is not of type `Evaluate`.
-pub fn evaluate(executor: &dyn PisaExecutor, run: &Run) -> Result<String, Error> {
+pub fn evaluate(
+    executor: &dyn PisaExecutor,
+    run: &Run,
+    use_scorer: bool,
+) -> Result<Vec<String>, Error> {
     if let Evaluate(data) = &run.data {
-        let queries = if let TopicsFormat::Trec(field) = &data.topics_format {
-            executor.extract_topics(&data.topics, &data.topics)?;
-            format!("{}.{}", &data.topics.display(), field)
-        } else {
-            data.topics.to_str().unwrap().to_string()
-        };
-        executor.evaluate_queries(&run.collection, &data, &queries)
+        let queries = queries_path(
+            &data.query_data.topics_format,
+            data.query_data.topics.as_path(),
+            executor,
+        )?;
+        data.query_data
+            .algorithms
+            .iter()
+            .map(|algorithm| {
+                executor.evaluate_queries(
+                    &run.collection,
+                    &data.query_data.encoding,
+                    algorithm,
+                    &queries,
+                    use_scorer,
+                )
+            })
+            .collect()
     } else {
         Err(Error::from(format!(
             "Run of type {} cannot be evaluated",
@@ -249,27 +342,69 @@ pub fn evaluate(executor: &dyn PisaExecutor, run: &Run) -> Result<String, Error>
     }
 }
 
+/// Runs query benchmark for on a given executor, for a given run.
+///
+/// Fails if the run is not of type `Benchmark`.
+pub fn benchmark(
+    executor: &dyn PisaExecutor,
+    run: &Run,
+    use_scorer: bool,
+) -> Result<String, Error> {
+    if let Benchmark(data) = &run.data {
+        let queries = queries_path(&data.topics_format, data.topics.as_path(), executor)?;
+        let results: Result<Vec<_>, Error> = data
+            .algorithms
+            .iter()
+            .map(|algorithm| {
+                executor.benchmark(
+                    &run.collection,
+                    &data.encoding,
+                    algorithm,
+                    &queries,
+                    use_scorer,
+                )
+            })
+            .collect::<Result<Vec<_>, Error>>();
+        Ok(results?.iter().fold(String::new(), |mut acc, x| {
+            acc.push_str(&x);
+            acc
+        }))
+    } else {
+        Err(Error::from(format!(
+            "Run of type {} cannot be benchmarked",
+            run.run_type()
+        )))
+    }
+}
+
 /// Process a run (e.g., single precision evaluation or benchmark).
-pub fn process_run(executor: &dyn PisaExecutor, run: &Run) -> Result<(), Error> {
+pub fn process_run(executor: &dyn PisaExecutor, run: &Run, use_scorer: bool) -> Result<(), Error> {
     match &run.data {
         Evaluate(eval) => {
-            let output = evaluate(executor, &run)?;
-            let results_output = format!("{}.results", &eval.output_basename.display());
-            let trec_eval_output = format!("{}.trec_eval", &eval.output_basename.display());
-            std::fs::write(&results_output, &output)?;
-            let output = ExtCommand::new("trec_eval")
-                .arg("-q")
-                .arg("-a")
-                .arg(eval.qrels.to_str().unwrap())
-                .arg(results_output)
-                .output()?;
-            let eval_result =
-                String::from_utf8(output.stdout).context("unable to parse result of trec_eval")?;
-            fs::write(trec_eval_output, eval_result)?;
+            for (output, algorithm) in evaluate(executor, &run, use_scorer)?
+                .iter()
+                .zip(&eval.query_data.algorithms)
+            {
+                let base_path = &eval.query_data.output_basename.display();
+                let results_output = format!("{}.{}.results", base_path, algorithm);
+                let trec_eval_output = format!("{}.{}.trec_eval", base_path, algorithm);
+                std::fs::write(&results_output, &output)?;
+                let output = ExtCommand::new("trec_eval")
+                    .arg("-q")
+                    .arg("-a")
+                    .arg(eval.qrels.to_str().unwrap())
+                    .arg(results_output)
+                    .output()?;
+                let eval_result = String::from_utf8(output.stdout)
+                    .context("unable to parse result of trec_eval")?;
+                fs::write(trec_eval_output, eval_result)?;
+            }
             Ok(())
         }
-        Benchmark => {
-            unimplemented!("Benchmark runs are currently unimplemented");
+        Benchmark(bench) => {
+            let output = benchmark(executor, &run, use_scorer)?;
+            fs::write(&bench.output_basename, output)?;
+            Ok(())
         }
     }
 }
