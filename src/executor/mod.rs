@@ -199,7 +199,7 @@ impl dyn PisaExecutor {
     }
 
     /// Runs `queries` command.
-    pub fn benchmark<S>(
+    pub fn benchmark<'a, S>(
         &self,
         collection: &Collection,
         encoding: &Encoding,

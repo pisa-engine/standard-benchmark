@@ -22,7 +22,6 @@ fn test_suppress() {
 #[test]
 fn test_parse_encodings() {
     assert_eq!(
-        //Collection::parse_encodings(&YamlLoader::load_from_str("- block_simdbp").unwrap()[0]),
         YamlLoader::load_from_str("- block_simdbp").unwrap()[0].parse::<Vec<Encoding>>(),
         Ok(vec![Encoding::from("block_simdbp")])
     );
@@ -121,7 +120,8 @@ runs:
       topics: /topics
       qrels: /qrels
       output: r1.out
-      encoding: block_simdbp
+      encodings:
+        - block_simdbp
       algorithms:
         - wand";
     std::fs::write(&config_file, yml)?;
@@ -153,7 +153,7 @@ runs:
                     topics,
                     topics_format,
                     output_basename,
-                    encoding,
+                    encodings,
                     algorithms,
                 },
             qrels,
@@ -162,7 +162,7 @@ runs:
             assert_eq!(qrels, &PathBuf::from("/qrels"));
             assert_eq!(topics_format, &TopicsFormat::Trec(TrecTopicField::Title));
             assert_eq!(output_basename, &PathBuf::from("/tmp/r1.out"));
-            assert_eq!(encoding, &"block_simdbp".into());
+            assert_eq!(encodings, &vec!["block_simdbp".into()]);
             assert_eq!(algorithms, &vec!["wand".into()]);
         }
         _ => panic!(),
