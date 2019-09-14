@@ -1,4 +1,3 @@
-#![feature(drain_filter)]
 extern crate clap;
 extern crate stdbench;
 extern crate stderrlog;
@@ -54,18 +53,32 @@ pub fn app<'a, 'b>() -> App<'a, 'b> {
         )
 }
 
-fn filter_collections<'a, I>(config: &mut Config, collections: I)
+fn filter_collections<'a, I>(mut config: &mut Config, collections: I)
 where
     I: IntoIterator<Item = &'a str>,
 {
     let colset = collections.into_iter().collect::<HashSet<&str>>();
-    config.collections.drain_filter(|c| {
-        let name = &c.name;
-        !colset.contains(&name.as_ref())
-    });
-    config
-        .runs
-        .drain_filter(|r| colset.contains(&r.collection.as_ref()));
+    config.collections = std::mem::replace(&mut config.collections, vec![])
+        .into_iter()
+        .filter(|c| {
+            let name = &c.name;
+            colset.contains(&name.as_ref())
+        })
+        .collect();
+    config.runs = std::mem::replace(&mut config.runs, vec![])
+        .into_iter()
+        .filter(|r| colset.contains(&r.collection.as_ref()))
+        .collect();
+    // TODO(michal): Replace the above with drain_filter once it stabilizes:
+    //               https://github.com/rust-lang/rust/issues/43244
+    //
+    // config.collections.drain_filter(|c| {
+    //     let name = &c.name;
+    //     !colset.contains(&name.as_ref())
+    // });
+    // config
+    //     .runs
+    //     .drain_filter(|r| colset.contains(&r.collection.as_ref()));
 }
 
 fn parse_config(args: Vec<String>) -> Result<Option<Config>, Error> {
