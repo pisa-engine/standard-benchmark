@@ -1,18 +1,20 @@
+#![feature(drain_filter)]
 extern crate clap;
 extern crate stdbench;
 extern crate stderrlog;
 extern crate tempdir;
 
 use clap::{App, Arg};
+use failure::ResultExt;
 use log::{error, info, warn};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::env;
-use std::path::PathBuf;
+use std::fs;
 use std::process;
 use stdbench::build;
-use stdbench::config::Config;
-use stdbench::error::Error;
+use stdbench::config::{Collection, Config, Stage};
 use stdbench::run::process_run;
+use stdbench::Error;
 use strum::IntoEnumIterator;
 
 pub fn app<'a, 'b>() -> App<'a, 'b> {
@@ -24,7 +26,7 @@ pub fn app<'a, 'b>() -> App<'a, 'b> {
                 .help("Configuration file path")
                 .long("config-file")
                 .takes_value(true)
-                .required(true),
+                .required_unless("print-stages"),
         )
         .arg(
             Arg::with_name("print-stages")
@@ -52,45 +54,38 @@ pub fn app<'a, 'b>() -> App<'a, 'b> {
         )
 }
 
-fn filter_collections<'a, I>(mut config: &mut Config, collections: I)
+fn filter_collections<'a, I>(config: &mut Config, collections: I)
 where
     I: IntoIterator<Item = &'a str>,
 {
     let colset = collections.into_iter().collect::<HashSet<&str>>();
-    config.collections = config
-        .collections
-        .iter()
-        .filter(|c| {
-            let name = &c.name;
-            colset.contains(&name.as_ref())
-        })
-        .cloned()
-        .collect();
-    config.runs = config
+    config.collections.drain_filter(|c| {
+        let name = &c.name;
+        !colset.contains(&name.as_ref())
+    });
+    config
         .runs
-        .iter()
-        .filter(|r| colset.contains(&r.collection.name.as_ref()))
-        .cloned()
-        .collect();
+        .drain_filter(|r| colset.contains(&r.collection.as_ref()));
 }
 
-fn parse_config(args: Vec<String>) -> Result<Config, Error> {
+fn parse_config(args: Vec<String>) -> Result<Option<Config>, Error> {
     let matches = app().get_matches_from(args);
     if matches.is_present("print-stages") {
-        for stage in stdbench::Stage::iter() {
+        for stage in Stage::iter() {
             println!("{}", stage);
         }
-        process::exit(0);
+        return Ok(None);
     }
     info!("Parsing config");
     let config_file = matches
         .value_of("config-file")
         .ok_or("failed to read required argument")?;
-    let mut config = Config::from_file(PathBuf::from(config_file))?;
+    let mut config: Config =
+        serde_yaml::from_reader(fs::File::open(config_file)?).context("Failed to parse config")?;
     if let Some(stages) = matches.values_of("suppress") {
         for name in stages {
-            if let Ok(stage) = name.parse() {
-                config.suppress_stage(stage);
+            if let Ok(stage) = serde_yaml::from_str(name) {
+                config.disable(stage);
             } else {
                 warn!("Requested suppression of stage `{}` that is invalid", name);
             }
@@ -102,23 +97,39 @@ fn parse_config(args: Vec<String>) -> Result<Config, Error> {
     if matches.is_present("no-scorer") {
         config.use_scorer = false;
     }
-    Ok(config)
+    Ok(Some(config))
 }
 
 #[cfg_attr(tarpaulin, skip)]
 fn run() -> Result<(), Error> {
     stderrlog::new().verbosity(100).init().unwrap();
+
     let config = parse_config(env::args().collect())?;
+    if config.is_none() {
+        return Ok(());
+    }
+    let config = config.unwrap();
     info!("Code source: {:?}", &config.source);
+
     let executor = config.executor()?;
     info!("Executor ready");
 
     for collection in &config.collections {
-        build::collection(executor.as_ref(), collection, &config)?;
+        build::collection(&executor, collection, &config)?;
     }
+    let collections: HashMap<String, &Collection> = config
+        .collections
+        .iter()
+        .map(|c| (c.name.to_string(), c))
+        .collect();
     for run in &config.runs {
-        info!("{:?}", run);
-        process_run(executor.as_ref(), run, config.use_scorer)?;
+        if let Some(collection) = &collections.get(&run.collection) {
+            info!("{:?}", run);
+            process_run(&executor, run, collection, config.use_scorer)?;
+        } else {
+            // TODO
+            error!("{:?}", run);
+        }
     }
     Ok(())
 }
@@ -135,7 +146,6 @@ fn main() {
 mod test {
     extern crate tempdir;
 
-    use super::stdbench::Stage;
     use super::*;
     use std::fs;
     use tempdir::TempDir;
@@ -152,22 +162,28 @@ mod test {
     }
 
     #[test]
-    fn test_parse_config() {
+    fn test_parse_config() -> Result<(), Error> {
         let tmp = TempDir::new("tmp").unwrap();
         let config_file = tmp.path().join("conf.yml");
         let yml = "
 workdir: /tmp
 source:
-    type: git
-    branch: dev
-    url: https://github.com/pisa-engine/pisa.git
+    git:
+        branch: dev
+        url: https://github.com/pisa-engine/pisa.git
 collections:
     - name: wapo
-      kind: wapo
-      description: WashingtonPost.v2
-      collection_dir: coll
-      forward_index: fwd/wapo
-      inverted_index: inv/wapo
+      kind: washington-post
+      input_dir: coll
+      fwd_index: fwd/wapo
+      inv_index: inv/wapo
+      encodings:
+        - block_simdbp
+    - name: wapo2
+      kind: washington-post
+      input_dir: coll
+      fwd_index: fwd/wapo
+      inv_index: inv/wapo
       encodings:
         - block_simdbp";
         fs::write(config_file.to_str().unwrap(), &yml).unwrap();
@@ -183,8 +199,36 @@ collections:
             .into_iter()
             .map(|&s| String::from(s))
             .collect(),
-        )
+        )?
         .unwrap();
-        assert!(conf.is_suppressed(Stage::Compile));
+        assert!(!conf.stages[&Stage::Compile]);
+        assert_eq!(conf.use_scorer, true);
+
+        let conf = parse_config(
+            [
+                "exe",
+                "--config-file",
+                config_file.to_str().unwrap(),
+                "--collections",
+                "wapo2",
+                "--no-scorer",
+            ]
+            .into_iter()
+            .map(|&s| String::from(s))
+            .collect(),
+        )?
+        .unwrap();
+        let colnames: Vec<_> = conf.collections.iter().map(|c| c.name.clone()).collect();
+        assert_eq!(colnames, vec!["wapo2".to_string()]);
+        assert_eq!(conf.use_scorer, false);
+
+        assert!(parse_config(
+            ["exe", "--print-stages"]
+                .into_iter()
+                .map(|&s| String::from(s))
+                .collect(),
+        )?
+        .is_none());
+        Ok(())
     }
 }
