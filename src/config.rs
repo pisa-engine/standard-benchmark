@@ -110,6 +110,9 @@ pub struct Config {
     /// Use `--scorer`. `false` for legacy PISA code before `ql3`.
     #[serde(default = "true_default")]
     pub use_scorer: bool,
+    /// Clean up before running: remove work dir.
+    #[serde(default)]
+    pub clean: bool,
 }
 
 impl Config {
