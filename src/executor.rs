@@ -1,9 +1,5 @@
 //! Objects and functions dealing with executing PISA command line tools.
 
-extern crate boolinator;
-extern crate downcast_rs;
-extern crate failure;
-
 use crate::config::{Algorithm, Collection, Encoding};
 use crate::{CommandDebug, Error};
 use boolinator::Boolinator;
