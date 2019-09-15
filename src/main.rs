@@ -53,6 +53,11 @@ pub fn app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true),
         )
         .arg(
+            Arg::with_name("clean")
+                .help("Remove entire work dir first")
+                .long("clean"),
+        )
+        .arg(
             Arg::with_name("no-scorer")
                 .help("No --scorer in runs (for backwards compatibility)")
                 .long("no-scorer"),
@@ -133,6 +138,9 @@ fn parse_config(args: Vec<String>, init_log: bool) -> Result<Option<Config>, Err
     if matches.is_present("no-scorer") {
         config.use_scorer = false;
     }
+    if matches.is_present("clean") {
+        config.clean = true;
+    }
     Ok(Some(config))
 }
 
@@ -143,7 +151,11 @@ fn run() -> Result<(), Error> {
         return Ok(());
     }
     let config = config.unwrap();
-    info!("Code source: {:?}", &config.source);
+    info!("Config: {:?}", &config);
+
+    if config.clean {
+        std::fs::remove_dir_all(&config.workdir)?;
+    }
 
     let executor = config.executor()?;
     info!("Executor ready");
