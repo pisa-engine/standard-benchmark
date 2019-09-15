@@ -1,8 +1,3 @@
-extern crate clap;
-extern crate stdbench;
-extern crate stderrlog;
-extern crate tempdir;
-
 use clap::{App, Arg};
 use failure::ResultExt;
 use log::{error, info, warn};
@@ -26,6 +21,17 @@ pub fn app<'a, 'b>() -> App<'a, 'b> {
                 .long("config-file")
                 .takes_value(true)
                 .required_unless("print-stages"),
+        )
+        .arg(
+            Arg::with_name("v")
+                .short("v")
+                .multiple(true)
+                .help("Sets the level of verbosity"),
+        )
+        .arg(
+            Arg::with_name("log")
+                .long("log")
+                .help("Store logs in a file (PISA output excluded)"),
         )
         .arg(
             Arg::with_name("print-stages")
@@ -81,8 +87,25 @@ where
     //     .drain_filter(|r| colset.contains(&r.collection.as_ref()));
 }
 
-fn parse_config(args: Vec<String>) -> Result<Option<Config>, Error> {
+fn parse_config(args: Vec<String>, init_log: bool) -> Result<Option<Config>, Error> {
     let matches = app().get_matches_from(args);
+    if init_log {
+        let log_level = match matches.occurrences_of("v") {
+            0 => "info",
+            1 => "debug",
+            _ => "trace",
+        };
+        let logger = flexi_logger::Logger::with_env_or_str(log_level);
+        if matches.is_present("log") {
+            logger
+                .log_to_file()
+                .duplicate_to_stderr(flexi_logger::Duplicate::All)
+                .start()
+                .unwrap();
+        } else {
+            logger.start().unwrap();
+        }
+    }
     if matches.is_present("print-stages") {
         for stage in Stage::iter() {
             println!("{}", stage);
@@ -115,9 +138,7 @@ fn parse_config(args: Vec<String>) -> Result<Option<Config>, Error> {
 
 #[cfg_attr(tarpaulin, skip)]
 fn run() -> Result<(), Error> {
-    stderrlog::new().verbosity(100).init().unwrap();
-
-    let config = parse_config(env::args().collect())?;
+    let config = parse_config(env::args().collect(), true)?;
     if config.is_none() {
         return Ok(());
     }
@@ -165,11 +186,13 @@ mod test {
 
     #[test]
     fn test_parse_config_missing_file() {
+        std::env::set_var("RUST_LOG", "off");
         assert!(parse_config(
             ["exe", "--config-file", "file"]
                 .into_iter()
                 .map(|&s| String::from(s))
                 .collect(),
+            false
         )
         .is_err());
     }
@@ -212,6 +235,7 @@ collections:
             .into_iter()
             .map(|&s| String::from(s))
             .collect(),
+            false,
         )?
         .unwrap();
         assert!(!conf.stages[&Stage::Compile]);
@@ -229,6 +253,7 @@ collections:
             .into_iter()
             .map(|&s| String::from(s))
             .collect(),
+            false,
         )?
         .unwrap();
         let colnames: Vec<_> = conf.collections.iter().map(|c| c.name.clone()).collect();
@@ -240,6 +265,7 @@ collections:
                 .into_iter()
                 .map(|&s| String::from(s))
                 .collect(),
+            false
         )?
         .is_none());
         Ok(())

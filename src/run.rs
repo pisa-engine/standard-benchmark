@@ -1,8 +1,4 @@
 //! All things related to experimental runs, including efficiency and precision runs.
-extern crate failure;
-extern crate strum;
-extern crate strum_macros;
-extern crate yaml_rust;
 
 use crate::{
     config::{Collection, Run, RunKind, Topics},
