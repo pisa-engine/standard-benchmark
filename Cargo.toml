@@ -3,9 +3,11 @@ name = "standard-benchmark"
 version = "0.1.0"
 authors = ["Michal Siedlaczek <michal.siedlaczek@nyu.edu>"]
 edition = "2018"
+build = "build.rs"
 
 [lib]
 name = "stdbench"
+path = "src/lib.rs"
 
 [dependencies]
 clap = "2.24"
@@ -25,3 +27,9 @@ serde = { version = "1.0", features = ["derive"] }
 serde_yaml = "0.8"
 url = "2.1"
 url_serde = "0.2"
+git2 = "0.10"
+
+[build-dependencies]
+cc = "1.0"
+git2 = "0.10"
+tempdir = "0.3"
