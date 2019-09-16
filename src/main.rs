@@ -2,9 +2,7 @@ use clap::{App, Arg};
 use failure::ResultExt;
 use log::{error, info, warn};
 use std::collections::{HashMap, HashSet};
-use std::env;
-use std::fs;
-use std::process;
+use std::{env, fs, process};
 use stdbench::build;
 use stdbench::config::{Collection, Config, Stage};
 use stdbench::run::process_run;
@@ -198,7 +196,7 @@ mod test {
 
     #[test]
     fn test_parse_config_missing_file() {
-        std::env::set_var("RUST_LOG", "off");
+        env::set_var("RUST_LOG", "off");
         assert!(parse_config(
             ["exe", "--config-file", "file"]
                 .into_iter()

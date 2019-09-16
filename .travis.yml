@@ -2,6 +2,9 @@ sudo: required
 language: rust
 dist: xenial
 
+env:
+    - CC=gcc
+
 cache: cargo
 
 addons:
@@ -9,6 +12,7 @@ addons:
     packages:
       - cmake
       - g++
+      - gcc
       - pkg-config
       - jq
       - libssl-dev
