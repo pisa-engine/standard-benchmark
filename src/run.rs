@@ -8,7 +8,7 @@ use crate::{
 };
 use failure::ResultExt;
 use itertools::iproduct;
-use std::{fs, process::Command};
+use std::{env, fs, iter, path::PathBuf, process::Command};
 
 #[cfg_attr(tarpaulin, skip)]
 fn queries_path(topics: &Topics, executor: &Executor) -> Result<String, Error> {
@@ -80,7 +80,15 @@ pub fn process_run(
                 let results_output = format!("{}.{}.results", base_path, algorithm);
                 let trec_eval_output = format!("{}.{}.trec_eval", base_path, algorithm);
                 std::fs::write(&results_output, &output)?;
+                let out_dir = PathBuf::from(env!("OUT_DIR"));
+                let paths: Vec<_> = iter::once(out_dir)
+                    .chain(env::split_paths(&env::var("PATH").unwrap()))
+                    .collect();
                 let output = Command::new("trec_eval")
+                    .env(
+                        "PATH",
+                        env::join_paths(&paths).expect("Failed to join PATHs"),
+                    )
                     .arg("-q")
                     .arg("-a")
                     .arg(qrels.to_str().unwrap())
@@ -106,7 +114,6 @@ mod tests {
     use super::*;
     use crate::tests::{mock_program, mock_set_up, EchoMode, EchoOutput, MockSetup};
     use crate::Error;
-    use std::path;
     use tempdir::TempDir;
 
     #[test]
@@ -178,41 +185,6 @@ mod tests {
                 tmp.path().join("topics").display(),
             )
         );
-        let trec_eval = programs.get("trec_eval").unwrap().to_str().unwrap();
-        let qrels = tmp
-            .path()
-            .join("qrels")
-            .into_os_string()
-            .into_string()
-            .unwrap();
-        let run = config.runs[1].output.to_str().unwrap().to_string();
-        // TODO: Revisit when #5 addressed
-        // assert_eq!(
-        //     EchoOutput::from(
-        //         path::PathBuf::from(format!(
-        //             "{}.wand.trec_eval",
-        //             config.runs[1].output.display()
-        //         ))
-        //         .as_path()
-        //     ),
-        //     EchoOutput::from(format!(
-        //         "{} -q -a {} {}.wand.results",
-        //         &trec_eval, &qrels, &run
-        //     )),
-        // );
-        // assert_eq!(
-        //     EchoOutput::from(
-        //         path::PathBuf::from(format!(
-        //             "{}.maxscore.trec_eval",
-        //             config.runs[1].output.display()
-        //         ))
-        //         .as_path()
-        //     ),
-        //     EchoOutput::from(format!(
-        //         "{} -q -a {} {}.maxscore.results",
-        //         &trec_eval, &qrels, &run
-        //     )),
-        // );
     }
 
     #[test]
