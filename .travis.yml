@@ -2,6 +2,9 @@ sudo: required
 language: rust
 dist: xenial
 
+env:
+    - CC=gcc
+
 cache: cargo
 
 addons:
