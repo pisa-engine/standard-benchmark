@@ -9,6 +9,7 @@ addons:
     packages:
       - cmake
       - g++
+      - gcc
       - pkg-config
       - jq
       - libssl-dev
