@@ -89,7 +89,6 @@ pub fn process_run(
                     .output()?;
                 let eval_result = String::from_utf8(output.stdout)
                     .context("unable to parse result of trec_eval")?;
-                println!("eval_results = {}", &eval_result);
                 fs::write(trec_eval_output, eval_result)?;
             }
             Ok(())
@@ -149,7 +148,12 @@ mod tests {
     fn test_evaluate_simple_topics() {
         let tmp = TempDir::new("build").unwrap();
         let mut mock_setup = mock_set_up(&tmp);
-        mock_program(&tmp, &mut mock_setup, "trec_eval", EchoMode::Stdout);
+        mock_program(
+            &tmp.path().join("bin"),
+            &mut mock_setup,
+            "trec_eval",
+            EchoMode::Stdout,
+        );
         let MockSetup {
             config,
             executor,
@@ -162,16 +166,25 @@ mod tests {
             std::fs::read_to_string(outputs.get("evaluate_queries").unwrap()).unwrap(),
             format!(
                 "{0} -t block_simdbp -i {2}.block_simdbp -w {2}.wand -a wand \
-                 -q topics --terms {1}.termmap --documents {1}.docmap \
+                 -q {3} --terms {1}.termmap --documents {1}.docmap \
                  --stemmer porter2 -k 1000 --scorer bm25\n\
                  {0} -t block_simdbp -i {2}.block_simdbp -w {2}.wand -a maxscore \
-                 -q topics --terms {1}.termmap --documents {1}.docmap \
+                 -q {3} --terms {1}.termmap --documents {1}.docmap \
                  --stemmer porter2 -k 1000 --scorer bm25\n",
                 programs.get("evaluate_queries").unwrap().display(),
                 tmp.path().join("fwd").display(),
                 tmp.path().join("inv").display(),
+                tmp.path().join("topics").display(),
             )
         );
+        let trec_eval = programs.get("trec_eval").unwrap().to_str().unwrap();
+        let qrels = tmp
+            .path()
+            .join("qrels")
+            .into_os_string()
+            .into_string()
+            .unwrap();
+        let run = config.runs[1].output.to_str().unwrap().to_string();
         assert_eq!(
             EchoOutput::from(
                 path::PathBuf::from(format!(
@@ -181,9 +194,8 @@ mod tests {
                 .as_path()
             ),
             EchoOutput::from(format!(
-                "{} -q -a qrels {}.wand.results",
-                programs.get("trec_eval").unwrap().display(),
-                config.runs[1].output.display()
+                "{} -q -a {} {}.wand.results",
+                &trec_eval, &qrels, &run
             )),
         );
         assert_eq!(
@@ -195,9 +207,8 @@ mod tests {
                 .as_path()
             ),
             EchoOutput::from(format!(
-                "{} -q -a qrels {}.maxscore.results",
-                programs.get("trec_eval").unwrap().display(),
-                config.runs[1].output.display()
+                "{} -q -a {} {}.maxscore.results",
+                &trec_eval, &qrels, &run
             )),
         );
     }
