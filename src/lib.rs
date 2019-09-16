@@ -148,86 +148,93 @@ mod tests {
         pub term_count: usize,
     }
 
-    pub(crate) fn mock_program(
-        tmp: &TempDir,
+    pub(crate) fn mock_program<P: AsRef<Path>>(
+        bin: P,
         setup: &mut MockSetup,
         program: &'static str,
         mode: EchoMode,
     ) {
-        let path = tmp.path().join(format!("{}.out", program));
-        let prog = tmp.path().join(program);
+        let path = bin.as_ref().join(format!("{}.out", program));
+        let prog = bin.as_ref().join(program);
         make_echo(&prog, &path, mode).unwrap();
         setup.outputs.insert(program, path);
         setup.programs.insert(program, prog);
     }
 
     pub(crate) fn mock_set_up(tmp: &TempDir) -> MockSetup {
-        let mut config = Config {
+        use EchoMode::Redirect;
+        let collections = vec![
+            Collection {
+                name: "wapo".to_string(),
+                kind: CollectionKind::WashingtonPost,
+                input_dir: tmp.path().join("coll"),
+                fwd_index: tmp.path().join("fwd"),
+                inv_index: tmp.path().join("inv"),
+                encodings: vec!["block_simdbp".into(), "block_qmx".into()],
+            },
+            Collection {
+                name: "gov2".to_string(),
+                kind: CollectionKind::TrecWeb,
+                input_dir: tmp.path().join("gov2"),
+                fwd_index: tmp.path().join("gov2/fwd"),
+                inv_index: tmp.path().join("gov2/inv"),
+                encodings: vec!["block_simdbp".into(), "block_qmx".into()],
+            },
+            Collection {
+                name: "cw09b".to_string(),
+                kind: CollectionKind::Warc,
+                input_dir: tmp.path().join("cw09b"),
+                fwd_index: tmp.path().join("cw09b/fwd"),
+                inv_index: tmp.path().join("cw09b/inv"),
+                encodings: vec!["block_simdbp".into(), "block_qmx".into()],
+            },
+        ];
+        let runs = vec![
+            Run {
+                collection: "wapo".into(),
+                kind: RunKind::Evaluate {
+                    qrels: tmp.path().join("qrels"),
+                },
+                encodings: vec!["block_simdbp".into(), "block_qmx".into()],
+                algorithms: vec!["wand".into(), "maxscore".into()],
+                topics: vec![Topics::Trec {
+                    path: tmp.path().join("topics"),
+                    field: TopicField::Title,
+                }],
+                output: tmp.path().join("output.trec"),
+            },
+            Run {
+                collection: "wapo".into(),
+                kind: RunKind::Evaluate {
+                    qrels: tmp.path().join("qrels"),
+                },
+                encodings: vec!["block_simdbp".into()],
+                algorithms: vec!["wand".into(), "maxscore".into()],
+                topics: vec![Topics::Simple {
+                    path: tmp.path().join("topics"),
+                }],
+                output: tmp.path().join("output.trec"),
+            },
+            Run {
+                collection: "wapo".into(),
+                kind: RunKind::Benchmark,
+                encodings: vec!["block_simdbp".into()],
+                algorithms: vec!["wand".into(), "maxscore".into()],
+                topics: vec![Topics::Trec {
+                    path: tmp.path().join("topics"),
+                    field: TopicField::Title,
+                }],
+                output: tmp.path().join("bench.json"),
+            },
+        ];
+        let config = Config {
             workdir: tmp.path().to_path_buf(),
-            source: Source::Path(tmp.path().to_path_buf()),
+            source: Source::Path(tmp.path().join("bin")),
             use_scorer: true,
+            collections,
+            runs,
             ..Config::default()
         };
-        config.collections.push(Collection {
-            name: "wapo".to_string(),
-            kind: CollectionKind::WashingtonPost,
-            input_dir: tmp.path().join("coll"),
-            fwd_index: tmp.path().join("fwd"),
-            inv_index: tmp.path().join("inv"),
-            encodings: vec!["block_simdbp".into(), "block_qmx".into()],
-        });
-        config.collections.push(Collection {
-            name: "gov2".to_string(),
-            kind: CollectionKind::TrecWeb,
-            input_dir: tmp.path().join("gov2"),
-            fwd_index: tmp.path().join("gov2/fwd"),
-            inv_index: tmp.path().join("gov2/inv"),
-            encodings: vec!["block_simdbp".into(), "block_qmx".into()],
-        });
-        config.collections.push(Collection {
-            name: "cw09b".to_string(),
-            kind: CollectionKind::Warc,
-            input_dir: tmp.path().join("cw09b"),
-            fwd_index: tmp.path().join("cw09b/fwd"),
-            inv_index: tmp.path().join("cw09b/inv"),
-            encodings: vec!["block_simdbp".into(), "block_qmx".into()],
-        });
-        config.runs.push(Run {
-            collection: "wapo".into(),
-            kind: RunKind::Evaluate {
-                qrels: PathBuf::from("qrels"),
-            },
-            encodings: vec!["block_simdbp".into(), "block_qmx".into()],
-            algorithms: vec!["wand".into(), "maxscore".into()],
-            topics: vec![Topics::Trec {
-                path: PathBuf::from("topics"),
-                field: TopicField::Title,
-            }],
-            output: tmp.path().join("output.trec"),
-        });
-        config.runs.push(Run {
-            collection: "wapo".into(),
-            kind: RunKind::Evaluate {
-                qrels: PathBuf::from("qrels"),
-            },
-            encodings: vec!["block_simdbp".into()],
-            algorithms: vec!["wand".into(), "maxscore".into()],
-            topics: vec![Topics::Simple {
-                path: PathBuf::from("topics"),
-            }],
-            output: tmp.path().join("output.trec"),
-        });
-        config.runs.push(Run {
-            collection: "wapo".into(),
-            kind: RunKind::Benchmark,
-            encodings: vec!["block_simdbp".into()],
-            algorithms: vec!["wand".into(), "maxscore".into()],
-            topics: vec![Topics::Trec {
-                path: PathBuf::from("topics"),
-                field: TopicField::Title,
-            }],
-            output: PathBuf::from("bench.json"),
-        });
 
         let data_dir = tmp.path().join("coll").join("data");
         fs::create_dir_all(&data_dir).unwrap();
@@ -262,21 +269,22 @@ mod tests {
             term_count: 3,
         };
 
-        use EchoMode::Redirect;
-        mock_program(&tmp, &mut mock_setup, "parse_collection", Redirect);
-        mock_program(&tmp, &mut mock_setup, "invert", Redirect);
-        mock_program(&tmp, &mut mock_setup, "create_freq_index", Redirect);
-        mock_program(&tmp, &mut mock_setup, "create_wand_data", Redirect);
-        mock_program(&tmp, &mut mock_setup, "lexicon", Redirect);
-        mock_program(&tmp, &mut mock_setup, "evaluate_queries", Redirect);
-        mock_program(&tmp, &mut mock_setup, "queries", Redirect);
-        mock_program(&tmp, &mut mock_setup, "extract_topics", Redirect);
-        mock_program(&tmp, &mut mock_setup, "trec_eval", Redirect);
+        let bin = tmp.path().join("bin");
+        fs::create_dir(&bin).expect("Could not create bin directory");
+        mock_program(&bin, &mut mock_setup, "parse_collection", Redirect);
+        mock_program(&bin, &mut mock_setup, "invert", Redirect);
+        mock_program(&bin, &mut mock_setup, "create_freq_index", Redirect);
+        mock_program(&bin, &mut mock_setup, "create_wand_data", Redirect);
+        mock_program(&bin, &mut mock_setup, "lexicon", Redirect);
+        mock_program(&bin, &mut mock_setup, "evaluate_queries", Redirect);
+        mock_program(&bin, &mut mock_setup, "queries", Redirect);
+        mock_program(&bin, &mut mock_setup, "extract_topics", Redirect);
+        mock_program(&bin, &mut mock_setup, "trec_eval", Redirect);
         set_var(
             "PATH",
             format!(
                 "{}:{}",
-                tmp.path().display(),
+                bin.display(),
                 var("PATH").unwrap_or_else(|_| String::from(""))
             ),
         );
@@ -292,7 +300,7 @@ mod tests {
 
     impl From<&str> for EchoOutput {
         fn from(output: &str) -> Self {
-            Self(output.split("\n").map(|s| s.into()).collect())
+            Self(output.split('\n').map(|s| s.into()).collect())
         }
     }
 
