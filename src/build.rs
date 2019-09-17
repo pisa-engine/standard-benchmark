@@ -297,55 +297,67 @@ mod tests {
         );
     }
 
-    //     #[test]
-    //     fn test_suppressed_build() {
-    //         let tmp = TempDir::new("build").unwrap();
-    //         let MockSetup {
-    //             mut config,
-    //             executor,
-    //             ..
-    //         } = mock_set_up(&tmp);
-    //         config.disable(Stage::BuildIndex);
-    //         let stages = collection(&executor, &config.collections[0], &config).unwrap();
-    //         assert_eq!(stages, vec![]);
-    //     }
+    #[test]
+    fn test_suppressed_build() {
+        let tmp = TempDir::new("build").unwrap();
+        let MockSetup {
+            mut config,
+            executor,
+            outputs,
+            ..
+        } = mock_set_up(&tmp);
+        config.disable(Stage::BuildIndex);
+        collection(&executor, &config.collections[0], &config).unwrap();
+        assert!(!outputs.get("parse_collection").unwrap().exists());
+        assert!(!outputs.get("invert").unwrap().exists());
+        assert!(!outputs.get("create_freq_index").unwrap().exists());
+        assert!(!outputs.get("create_wand_data").unwrap().exists());
+        assert!(!outputs.get("lexicon").unwrap().exists());
+    }
 
-    //     #[test]
-    //     fn test_suppressed_parse_and_invert() {
-    //         let tmp = TempDir::new("build").unwrap();
-    //         let MockSetup {
-    //             mut config,
-    //             executor,
-    //             programs: _,
-    //             outputs: _,
-    //             term_count: _,
-    //         } = mock_set_up(&tmp);
-    //         config.suppress_stage(Stage::ParseCollection);
-    //         config.suppress_stage(Stage::Invert);
-    //         let stages = collection(executor.as_ref(), &config.collections[0], &config).unwrap();
-    //         assert_eq!(stages, vec![Stage::BuildIndex]);
-    //     }
+    #[test]
+    fn test_suppressed_parse_and_invert() {
+        let tmp = TempDir::new("build").unwrap();
+        let MockSetup {
+            mut config,
+            executor,
+            outputs,
+            ..
+        } = mock_set_up(&tmp);
+        config.disable(Stage::Parse);
+        config.disable(Stage::Invert);
+        collection(&executor, &config.collections[0], &config).unwrap();
+        assert!(!outputs.get("parse_collection").unwrap().exists());
+        assert!(!outputs.get("parse_collection").unwrap().exists());
+        assert!(!outputs.get("invert").unwrap().exists());
+        assert!(outputs.get("create_freq_index").unwrap().exists());
+        assert!(outputs.get("create_wand_data").unwrap().exists());
+        assert!(!outputs.get("lexicon").unwrap().exists());
+    }
 
-    //     #[test]
-    //     fn test_suppressed_parse_batches() -> Result<(), Error> {
-    //         let tmp = TempDir::new("build").unwrap();
-    //         let MockSetup {
-    //             mut config,
-    //             executor,
-    //             programs: _,
-    //             outputs: _,
-    //             term_count: _,
-    //         } = mock_set_up(&tmp);
-    //         std::fs::File::create(format!(
-    //             "{}.batch.0.documents",
-    //             &config.collections[0].fwd()?
-    //         ))
-    //         .unwrap();
-    //         config.suppress_stage(Stage::ParseBatches);
-    //         let stages = collection(executor.as_ref(), &config.collections[0], &config).unwrap();
-    //         assert_eq!(stages, vec![Stage::BuildIndex, Stage::Invert]);
-    //         Ok(())
-    //     }
+    #[test]
+    fn test_suppressed_parse_batches() {
+        let tmp = TempDir::new("build").unwrap();
+        let MockSetup {
+            mut config,
+            executor,
+            outputs,
+            ..
+        } = mock_set_up(&tmp);
+        std::fs::File::create(format!(
+            "{}.batch.0.documents",
+            &config.collections[0].fwd_index.display()
+        ))
+        .unwrap();
+        config.disable(Stage::ParseBatches);
+        collection(&executor, &config.collections[0], &config).unwrap();
+        let parse_out = std::fs::read_to_string(outputs.get("parse_collection").unwrap()).unwrap();
+        assert!(parse_out.find("merge").is_some());
+        assert!(outputs.get("invert").unwrap().exists());
+        assert!(outputs.get("create_freq_index").unwrap().exists());
+        assert!(outputs.get("create_wand_data").unwrap().exists());
+        assert!(outputs.get("lexicon").unwrap().exists());
+    }
 
     #[test]
     fn test_parse_wapo_command() -> Result<(), Error> {
@@ -364,7 +376,7 @@ mod tests {
             encodings: vec![],
         };
         let (cat, parse) = parsing_commands(&executor, &cconf)?;
-        assert_eq!(cat.to_string(), format!("zcat {}", data_file.display()));
+        assert_eq!(cat.to_string(), format!("cat {}", data_file.display()));
         assert_eq!(
             parse.to_string(),
             [
