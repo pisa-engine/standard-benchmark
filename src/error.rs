@@ -77,6 +77,14 @@ impl From<std::io::Error> for Error {
     }
 }
 
+impl From<git2::Error> for Error {
+    fn from(e: git2::Error) -> Self {
+        Self {
+            inner: Context::new(e.to_string()),
+        }
+    }
+}
+
 impl From<failure::Error> for Error {
     fn from(e: failure::Error) -> Self {
         Self {

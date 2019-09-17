@@ -11,7 +11,6 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::{fmt, fs};
 use strum_macros::{Display, EnumIter, EnumString};
-use url::Url;
 
 fn process(args: &'static str) -> Command {
     let mut args = args.split(' ');
@@ -125,18 +124,18 @@ impl Config {
         self.stages.get(&stage).cloned().unwrap_or(true)
     }
 
-    fn git_clone(dir: &Path, url: &Url) -> Result<(), Error> {
-        let status = Command::new("git")
-            .arg("clone")
-            .arg(&url.to_string())
-            .arg(dir.to_str().unwrap())
-            .status()?;
-        if status.success() {
-            Ok(())
-        } else {
-            Err(Error::from("git-clone has failed"))
-        }
-    }
+    // fn git_clone(dir: &Path, url: &str) -> Result<(), Error> {
+    //     let status = Command::new("git")
+    //         .arg("clone")
+    //         .arg(&url.to_string())
+    //         .arg(dir.to_str().unwrap())
+    //         .status()?;
+    //     if status.success() {
+    //         Ok(())
+    //     } else {
+    //         Err(Error::from("git-clone has failed"))
+    //     }
+    // }
 
     /// Construct an executor for a set of PISA tools.
     pub fn executor(&self) -> Result<Executor, Error> {
@@ -144,29 +143,19 @@ impl Config {
             Source::System => Ok(Executor::new()),
             Source::Git { branch, url } => {
                 let dir = self.workdir.join("pisa");
-                if !dir.exists() {
-                    Self::git_clone(dir.as_ref(), &url)?;
+                let repo = if dir.exists() {
+                    git2::Repository::open(&dir)?
+                } else {
+                    git2::Repository::clone(&url, &dir)?
                 };
                 let build_dir = dir.join("build");
                 fs::create_dir_all(&build_dir).context("Could not create build directory")?;
                 if self.stages.get(&Stage::Compile).cloned().unwrap_or(true) {
-                    process("git reset --hard")
-                        .current_dir(&dir)
-                        .status()?
-                        .success()
-                        .ok_or("git-reset failed")?;
-                    Command::new("git")
-                        .args(&["checkout", branch])
-                        .current_dir(&dir)
-                        .status()?
-                        .success()
-                        .ok_or("git-checkout failed")?;
-                    Command::new("git")
-                        .arg("pull")
-                        .current_dir(&dir)
-                        .status()?
-                        .success()
-                        .ok_or("git-pull failed")?;
+                    repo.find_remote("origin")?.fetch(&[&branch], None, None)?;
+                    let commit = repo
+                        .resolve_reference_from_short_name(&format!("origin/{}", &branch))?
+                        .peel(git2::ObjectType::Any)?;
+                    repo.reset(&commit, git2::ResetType::Hard, None)?;
                     process("cmake -DCMAKE_BUILD_TYPE=Release ..")
                         .current_dir(&build_dir)
                         .status()?
@@ -180,9 +169,9 @@ impl Config {
                 } else {
                     warn!("Compilation has been suppressed");
                 }
-                Ok(Executor::from(build_dir.join("bin")))
+                Ok(Executor::from(build_dir.join("bin"))?)
             }
-            Source::Path(path) => Ok(Executor::from(path.to_path_buf())),
+            Source::Path(path) => Ok(Executor::from(path.to_path_buf())?),
             Source::Docker(_) => unimplemented!(),
         }
     }
@@ -197,8 +186,7 @@ pub enum Source {
         /// Git branch to use.
         branch: String,
         /// HTTPS URL of the repository
-        #[serde(with = "serde_url")]
-        url: Url,
+        url: String,
     },
     /// Executables in a given directory.
     Path(PathBuf),
@@ -358,44 +346,6 @@ pub struct Run {
     pub topics: Vec<Topics>,
 }
 
-mod serde_url {
-    use serde::{de, Deserializer, Serializer};
-    use std::fmt;
-    use url::Url;
-
-    struct UrlVisitor;
-
-    impl<'de> de::Visitor<'de> for UrlVisitor {
-        type Value = Url;
-
-        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-            formatter.write_str("an URL")
-        }
-
-        fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
-        where
-            E: de::Error,
-        {
-            let url = Url::parse(value).map_err(|err| E::custom(err.to_string()))?;
-            Ok(url)
-        }
-    }
-
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<Url, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        deserializer.deserialize_str(UrlVisitor)
-    }
-
-    pub fn serialize<S>(url: &Url, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_str(url.as_str())
-    }
-}
-
 #[cfg(test)]
 mod test {
     use super::*;
@@ -412,7 +362,7 @@ mod test {
             source,
             Source::Git {
                 branch: "master".to_string(),
-                url: Url::parse("https://github.com/pisa-engine/pisa.git").unwrap()
+                url: "https://github.com/pisa-engine/pisa.git".to_string()
             }
         );
 

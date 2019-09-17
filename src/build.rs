@@ -9,6 +9,7 @@ use crate::config::{resolve_files, Collection, CollectionKind, Config, Stage};
 use crate::ensure_parent_exists;
 use crate::error::Error;
 use crate::executor::Executor;
+use crate::CommandDebug;
 use boolinator::Boolinator;
 use failure::ResultExt;
 use log::{info, warn};
@@ -57,6 +58,7 @@ fn merge_parsed_batches(executor: &Executor, collection: &Collection) -> Result<
         .arg("merge")
         .args(&["--batch-count", &batch_count.to_string()])
         .args(&["--document-count", &document_count.to_string()])
+        .log()
         .status()?
         .success()
         .ok_or("Failed to merge collection batches")?;
@@ -130,9 +132,9 @@ pub fn collection(
                 info!("[{}] [build] [parse] Parsing collection", name);
                 let (mut cat, mut parse) = parsing_commands(&executor, &collection)?;
                 let (reader, writer) = pipe().expect("Failed opening a pipe");
-                cat.stdout(writer);
+                cat.log().stdout(writer).spawn()?;
                 parse.stdin(reader);
-                parse.status()?.success().ok_or("Failed to parse")?;
+                parse.log().status()?.success().ok_or("Failed to parse")?;
             } else {
                 warn!("[{}] [build] [parse] Only merging", name);
                 merge_parsed_batches(executor, &collection)?;
