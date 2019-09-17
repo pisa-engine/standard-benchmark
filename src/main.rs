@@ -1,84 +1,62 @@
-use clap::{App, Arg};
 use failure::ResultExt;
-use log::{error, info, warn};
+use log::{error, info};
 use std::collections::{HashMap, HashSet};
-use std::env;
-use std::fs;
-use std::process;
-use stdbench::build;
+use std::path::PathBuf;
+use std::{env, fs, process};
 use stdbench::config::{Collection, Config, Stage};
 use stdbench::run::process_run;
 use stdbench::Error;
+use structopt::StructOpt;
 use strum::IntoEnumIterator;
 
-pub fn app<'a, 'b>() -> App<'a, 'b> {
-    App::new("PISA standard benchmark for regression tests.")
-        .version("1.0")
-        .author("Michal Siedlaczek <michal.siedlaczek@gmail.com>")
-        .arg(
-            Arg::with_name("config-file")
-                .help("Configuration file path")
-                .long("config-file")
-                .takes_value(true)
-                .required_unless("print-stages"),
-        )
-        .arg(
-            Arg::with_name("v")
-                .short("v")
-                .multiple(true)
-                .help("Sets the level of verbosity"),
-        )
-        .arg(
-            Arg::with_name("log")
-                .long("log")
-                .help("Store logs in a file (PISA output excluded)"),
-        )
-        .arg(
-            Arg::with_name("print-stages")
-                .help("Prints all available stages")
-                .long("print-stages"),
-        )
-        .arg(
-            Arg::with_name("suppress")
-                .help("A list of stages to suppress")
-                .long("suppress")
-                .multiple(true)
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name("collections")
-                .help("Filter out collections you want to run")
-                .long("collections")
-                .multiple(true)
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name("clean")
-                .help("Remove entire work dir first")
-                .long("clean"),
-        )
-        .arg(
-            Arg::with_name("no-scorer")
-                .help("No --scorer in runs (for backwards compatibility)")
-                .long("no-scorer"),
-        )
+#[derive(StructOpt, Debug)]
+#[structopt(name = "PISA Regression Benchmark Suite")]
+struct Opt {
+    /// Prints all available stages
+    #[structopt(long)]
+    print_stages: bool,
+
+    /// Configuration file path
+    #[structopt(long, parse(from_os_str), required_unless = "print-stages")]
+    config_file: Option<PathBuf>,
+
+    /// Verbose mode (-v, -vv, -vvv, etc.)
+    #[structopt(short, long, parse(from_occurrences))]
+    verbose: u8,
+
+    /// Store logs in a file (PISA output excluded)
+    #[structopt(long)]
+    log: bool,
+
+    /// A list of stages to suppress
+    #[structopt(long)]
+    suppress: Vec<Stage>,
+
+    /// Filter out collections you want to run
+    #[structopt(long)]
+    collections: Vec<String>,
+
+    /// Remove entire work dir first
+    #[structopt(long)]
+    clean: bool,
+
+    /// No --scorer in runs (for backwards compatibility)
+    #[structopt(long)]
+    no_scorer: bool,
 }
 
-fn filter_collections<'a, I>(mut config: &mut Config, collections: I)
-where
-    I: IntoIterator<Item = &'a str>,
-{
-    let colset = collections.into_iter().collect::<HashSet<&str>>();
+fn filter_collections(mut config: &mut Config, collections: &[String]) {
+    let colset = collections.iter().collect::<HashSet<&String>>();
     config.collections = std::mem::replace(&mut config.collections, vec![])
         .into_iter()
         .filter(|c| {
             let name = &c.name;
-            colset.contains(&name.as_ref())
+            colset.contains(&name)
         })
         .collect();
     config.runs = std::mem::replace(&mut config.runs, vec![])
         .into_iter()
-        .filter(|r| colset.contains(&r.collection.as_ref()))
+        .filter(|r| colset.contains(&r.collection))
         .collect();
     // TODO(michal): Replace the above with drain_filter once it stabilizes:
     //               https://github.com/rust-lang/rust/issues/43244
@@ -93,15 +71,24 @@ where
 }
 
 fn parse_config(args: Vec<String>, init_log: bool) -> Result<Option<Config>, Error> {
-    let matches = app().get_matches_from(args);
+    let Opt {
+        config_file,
+        verbose,
+        log,
+        print_stages,
+        suppress,
+        collections,
+        clean,
+        no_scorer,
+    } = Opt::from_iter_safe(&args).unwrap_or_else(|err| err.exit());
     if init_log {
-        let log_level = match matches.occurrences_of("v") {
+        let log_level = match verbose {
             0 => "info",
             1 => "debug",
             _ => "trace",
         };
         let logger = flexi_logger::Logger::with_env_or_str(log_level);
-        if matches.is_present("log") {
+        if log {
             logger
                 .log_to_file()
                 .duplicate_to_stderr(flexi_logger::Duplicate::All)
@@ -111,34 +98,25 @@ fn parse_config(args: Vec<String>, init_log: bool) -> Result<Option<Config>, Err
             logger.start().unwrap();
         }
     }
-    if matches.is_present("print-stages") {
+    if print_stages {
         for stage in Stage::iter() {
             println!("{}", stage);
         }
         return Ok(None);
     }
     info!("Parsing config");
-    let config_file = matches
-        .value_of("config-file")
-        .ok_or("failed to read required argument")?;
-    let mut config: Config =
-        serde_yaml::from_reader(fs::File::open(config_file)?).context("Failed to parse config")?;
-    if let Some(stages) = matches.values_of("suppress") {
-        for name in stages {
-            if let Ok(stage) = serde_yaml::from_str(name) {
-                config.disable(stage);
-            } else {
-                warn!("Requested suppression of stage `{}` that is invalid", name);
-            }
-        }
+    let mut config: Config = serde_yaml::from_reader(fs::File::open(config_file.unwrap())?)
+        .context("Failed to parse config")?;
+    for stage in suppress {
+        config.disable(stage);
     }
-    if let Some(collections) = matches.values_of("collections") {
-        filter_collections(&mut config, collections);
+    if !collections.is_empty() {
+        filter_collections(&mut config, &collections);
     }
-    if matches.is_present("no-scorer") {
+    if no_scorer {
         config.use_scorer = false;
     }
-    if matches.is_present("clean") {
+    if clean {
         config.clean = true;
     }
     Ok(Some(config))
@@ -161,7 +139,7 @@ fn run() -> Result<(), Error> {
     info!("Executor ready");
 
     for collection in &config.collections {
-        build::collection(&executor, collection, &config)?;
+        stdbench::build::collection(&executor, collection, &config)?;
     }
     let collections: HashMap<String, &Collection> = config
         .collections
@@ -197,19 +175,6 @@ mod test {
     use tempdir::TempDir;
 
     #[test]
-    fn test_parse_config_missing_file() {
-        std::env::set_var("RUST_LOG", "off");
-        assert!(parse_config(
-            ["exe", "--config-file", "file"]
-                .into_iter()
-                .map(|&s| String::from(s))
-                .collect(),
-            false
-        )
-        .is_err());
-    }
-
-    #[test]
     fn test_parse_config() -> Result<(), Error> {
         let tmp = TempDir::new("tmp").unwrap();
         let config_file = tmp.path().join("conf.yml");
@@ -242,7 +207,6 @@ collections:
                 config_file.to_str().unwrap(),
                 "--suppress",
                 "compile",
-                "invalid",
             ]
             .into_iter()
             .map(|&s| String::from(s))

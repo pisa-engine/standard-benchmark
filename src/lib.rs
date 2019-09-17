@@ -227,9 +227,13 @@ mod tests {
                 output: tmp.path().join("bench.json"),
             },
         ];
+
+        let bin = tmp.path().join("bin");
+        fs::create_dir(&bin).expect("Could not create bin directory");
+
         let config = Config {
             workdir: tmp.path().to_path_buf(),
-            source: Source::Path(tmp.path().join("bin")),
+            source: Source::Path(bin.clone()),
             use_scorer: true,
             collections,
             runs,
@@ -269,8 +273,6 @@ mod tests {
             term_count: 3,
         };
 
-        let bin = tmp.path().join("bin");
-        fs::create_dir(&bin).expect("Could not create bin directory");
         mock_program(&bin, &mut mock_setup, "parse_collection", Redirect);
         mock_program(&bin, &mut mock_setup, "invert", Redirect);
         mock_program(&bin, &mut mock_setup, "create_freq_index", Redirect);
@@ -357,7 +359,7 @@ mod tests {
         let echo = tmp.path().join("e");
         let output = tmp.path().join("output");
         make_echo(&echo, &output, EchoMode::Redirect).expect("Failed to make echo");
-        let executor = Executor::from(tmp.path().to_path_buf());
+        let executor = Executor::from(tmp.path().to_path_buf()).unwrap();
         executor
             .command("e")
             .args(&["arg1", "--a", "arg2"])
