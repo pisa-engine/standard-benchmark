@@ -298,6 +298,11 @@ mod test {
     }
 
     #[test]
+    fn test_new_executor() {
+        assert_eq!(Executor::new(), Executor { path: None });
+    }
+
+    #[test]
     #[cfg_attr(target_family, unix)]
     fn test_invert() {
         test_exec("invert", "Failed to invert index", |setup: &MockSetup| {
@@ -517,5 +522,39 @@ mod test {
                 topics_path.display()
             )
         );
+    }
+
+    #[test]
+    fn test_evaluate_fails() {
+        let tmp = TempDir::new("executor").unwrap();
+        let MockSetup {
+            config,
+            executor,
+            programs,
+            ..
+        } = mock_set_up(&tmp);
+        let run = &config.runs[0];
+        let collection = &config.collections[0];
+        std::fs::write(
+            programs.get("evaluate_queries").unwrap(),
+            "#!/bin/bash\nexit 1",
+        )
+        .unwrap();
+        assert!(process_run(&executor, run, collection, true).is_err());
+    }
+
+    #[test]
+    fn test_bench_fails() {
+        let tmp = TempDir::new("executor").unwrap();
+        let MockSetup {
+            config,
+            executor,
+            programs,
+            ..
+        } = mock_set_up(&tmp);
+        let run = &config.runs[2];
+        let collection = &config.collections[0];
+        std::fs::write(programs.get("queries").unwrap(), "#!/bin/bash\nexit 1").unwrap();
+        assert!(process_run(&executor, run, collection, true).is_err());
     }
 }
