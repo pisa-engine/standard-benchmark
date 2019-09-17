@@ -98,7 +98,7 @@ fn parsing_commands(
         }
         CollectionKind::WashingtonPost => {
             let input_files = resolve_files(collection.input_dir.join("data/*.jl"))?;
-            let mut cat = Command::new("zcat");
+            let mut cat = Command::new("cat");
             cat.args(&input_files);
             let mut parse = executor.command("parse_collection");
             parse
