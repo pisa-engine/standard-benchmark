@@ -112,7 +112,9 @@ pub fn process_run(
                 if let Some(compare_with) = &run.compare_with {
                     let compare_path =
                         format!("{}.{}.{}.trec_eval", compare_with.display(), algorithm, tid);
-                    if fs::read_to_string(&compare_path)? != eval_result {
+                    if fs::read_to_string(&compare_path).with_context(|_| compare_path.clone())?
+                        != eval_result
+                    {
                         diffs.push(Diff(
                             PathBuf::from(compare_path),
                             PathBuf::from(trec_eval_path),
@@ -140,9 +142,10 @@ pub fn process_run(
                         .context("Unable to parse benchmark results")?;
                     let compare_path =
                         format!("{}.{}.{}.trec_eval", compare_with.display(), algorithm, tid);
-                    let gold_standard: BenchmarkResults =
-                        serde_json::from_reader(fs::File::open(&compare_path)?)
-                            .context("Unable to parse benchmark gold standard")?;
+                    let gold_standard: BenchmarkResults = serde_json::from_reader(
+                        fs::File::open(&compare_path).with_context(|_| compare_path.clone())?,
+                    )
+                    .context("Unable to parse benchmark gold standard")?;
                     if results.regressed(&gold_standard, 0.01)? {
                         diffs.push(Diff(PathBuf::from(compare_path), PathBuf::from(path)));
                     }
