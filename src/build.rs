@@ -5,11 +5,10 @@ extern crate boolinator;
 extern crate failure;
 extern crate log;
 
-use crate::config::{resolve_files, Collection, CollectionKind, Config, Stage};
-use crate::ensure_parent_exists;
+use crate::config::{resolve_files, Collection, CollectionKind, Stage};
 use crate::error::Error;
 use crate::executor::Executor;
-use crate::CommandDebug;
+use crate::{ensure_parent_exists, CommandDebug, Config, Resolved};
 use boolinator::Boolinator;
 use failure::ResultExt;
 use log::{info, warn};
@@ -113,10 +112,10 @@ fn parsing_commands(
 }
 
 /// Builds a requeested collection, using a given executor.
-pub fn collection(
+pub fn collection<C: Config + Resolved>(
     executor: &Executor,
     collection: &Collection,
-    config: &Config,
+    config: &C,
 ) -> Result<(), Error> {
     info!(
         "Processing collection: {}/{:?}",
@@ -165,7 +164,7 @@ pub fn collection(
         }
         if config.enabled(Stage::Wand) {
             info!("[{}] [build] [wand] Creating WAND data", name);
-            executor.create_wand_data(&collection.inv_index, config.use_scorer)?;
+            executor.create_wand_data(&collection.inv_index, config.use_scorer())?;
         } else {
             warn!("[{}] [build] [wand] Suppressed", name);
         }
@@ -190,14 +189,14 @@ mod tests {
         {
             let tmp = TempDir::new("build").unwrap();
             let setup = mock_set_up(&tmp);
-            assert_eq!(term_count(&setup.config.collections[0]), Ok(3));
+            assert_eq!(term_count(&setup.config.collection(0)), Ok(3));
         }
         {
             let tmp = TempDir::new("build").unwrap();
             let setup = mock_set_up(&tmp);
             std::fs::remove_file(tmp.path().join("fwd.terms")).unwrap();
             assert_eq!(
-                term_count(&setup.config.collections[0]).err(),
+                term_count(&setup.config.collection(0)).err(),
                 Some(Error::from("Failed to count terms"))
             );
         }
@@ -214,7 +213,7 @@ mod tests {
             outputs,
             ..
         } = mock_set_up(&tmp);
-        let coll = &config.collections[0];
+        let coll = &config.collection(0);
         std::fs::write(
             format!("{}.batch.0.documents", coll.fwd_index.display()),
             "doc1\ndoc2\n",
@@ -249,7 +248,7 @@ mod tests {
             outputs,
             term_count,
         } = mock_set_up(&tmp);
-        collection(&executor, &config.collections[0], &config).unwrap();
+        collection(&executor, &config.collection(0), &config).unwrap();
         assert_eq!(
             std::fs::read_to_string(outputs.get("parse_collection").unwrap()).unwrap(),
             format!(
@@ -307,7 +306,7 @@ mod tests {
             ..
         } = mock_set_up(&tmp);
         config.disable(Stage::BuildIndex);
-        collection(&executor, &config.collections[0], &config).unwrap();
+        collection(&executor, &config.collection(0), &config).unwrap();
         assert!(!outputs.get("parse_collection").unwrap().exists());
         assert!(!outputs.get("invert").unwrap().exists());
         assert!(!outputs.get("create_freq_index").unwrap().exists());
@@ -326,7 +325,7 @@ mod tests {
         } = mock_set_up(&tmp);
         config.disable(Stage::Parse);
         config.disable(Stage::Invert);
-        collection(&executor, &config.collections[0], &config).unwrap();
+        collection(&executor, &config.collection(0), &config).unwrap();
         assert!(!outputs.get("parse_collection").unwrap().exists());
         assert!(!outputs.get("parse_collection").unwrap().exists());
         assert!(!outputs.get("invert").unwrap().exists());
@@ -346,11 +345,11 @@ mod tests {
         } = mock_set_up(&tmp);
         std::fs::File::create(format!(
             "{}.batch.0.documents",
-            &config.collections[0].fwd_index.display()
+            &config.collection(0).fwd_index.display()
         ))
         .unwrap();
         config.disable(Stage::ParseBatches);
-        collection(&executor, &config.collections[0], &config).unwrap();
+        collection(&executor, &config.collection(0), &config).unwrap();
         let parse_out = std::fs::read_to_string(outputs.get("parse_collection").unwrap()).unwrap();
         assert!(parse_out.find("merge").is_some());
         assert!(outputs.get("invert").unwrap().exists());

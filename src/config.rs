@@ -67,6 +67,7 @@ pub enum Stage {
     Run,
 }
 
+#[cfg_attr(tarpaulin, skip)]
 fn true_default() -> bool {
     true
 }
@@ -90,15 +91,58 @@ fn default_stages() -> HashMap<Stage, bool> {
     .collect()
 }
 
+/// Main config interface.
+pub trait Config {
+    /// All relative paths will fall back on to this directory.
+    fn workdir(&self) -> &Path;
+    /// Source of the PISA tools.
+    fn source(&self) -> &Source;
+    /// List of collections.
+    fn collections(&self) -> &[Collection];
+    /// List of experiments.
+    fn runs(&self) -> &[Run];
+    /// Disable a particular stage.
+    fn disable(&mut self, stage: Stage);
+    /// Returns `true` if a given stage is effectively enabled.
+    fn enabled(&self, stage: Stage) -> bool;
+    /// Construct an executor for a set of PISA tools.
+    fn executor(&self) -> Result<Executor, Error>;
+    /// Use `--scorer`. `false` for legacy PISA code before `ql3`.
+    fn use_scorer(&self) -> bool;
+    /// Clean up before running: remove work dir.
+    fn clean(&self) -> bool;
+
+    /// Retrieve a collection at a given index.
+    ///
+    /// # Panics
+    ///
+    /// Panics when the index is out of bounds.
+    fn collection(&self, idx: usize) -> &Collection {
+        &self.collections()[idx]
+    }
+
+    /// Retrieve a run at a given index.
+    ///
+    /// # Panics
+    ///
+    /// Panics when the index is out of bounds.
+    fn run(&self, idx: usize) -> &Run {
+        &self.runs()[idx]
+    }
+}
+
+/// Marker trait to signify that the paths are resolved with respect to the work dir.
+pub trait Resolved {}
+
 /// Main config.
 #[derive(Serialize, Deserialize, Debug, Default)]
-pub struct Config {
+pub struct RawConfig {
     /// All relative paths will fall back on to this directory.
     pub workdir: PathBuf,
     /// Source of the PISA tools.
     #[serde(default)]
     pub source: Source,
-    /// Source of the PISA tools.
+    /// List of collections.
     pub collections: Vec<Collection>,
     /// List of experiments.
     #[serde(default)]
@@ -114,18 +158,33 @@ pub struct Config {
     pub clean: bool,
 }
 
-impl Config {
-    /// Disable a particular stage.
-    pub fn disable(&mut self, stage: Stage) {
+impl Config for RawConfig {
+    fn workdir(&self) -> &Path {
+        self.workdir.as_ref()
+    }
+    fn source(&self) -> &Source {
+        &self.source
+    }
+    fn collections(&self) -> &[Collection] {
+        &self.collections
+    }
+    fn runs(&self) -> &[Run] {
+        &self.runs
+    }
+    fn disable(&mut self, stage: Stage) {
         self.stages.insert(stage, false);
     }
-    /// Returns `true` if a given stage is effectively enabled.
-    pub fn enabled(&self, stage: Stage) -> bool {
+    fn enabled(&self, stage: Stage) -> bool {
         self.stages.get(&stage).cloned().unwrap_or(true)
     }
+    fn use_scorer(&self) -> bool {
+        self.use_scorer
+    }
+    fn clean(&self) -> bool {
+        self.clean
+    }
 
-    /// Construct an executor for a set of PISA tools.
-    pub fn executor(&self) -> Result<Executor, Error> {
+    fn executor(&self) -> Result<Executor, Error> {
         match &self.source {
             Source::System => Ok(Executor::new()),
             Source::Git { branch, url } => {
@@ -163,6 +222,80 @@ impl Config {
         }
     }
 }
+
+/// This is simply a wrapper signifying that paths are resolved with respect to the work dir.
+///
+/// It is introduced so that it can be taken as argument to functions that assume
+/// the paths are resolved.
+#[derive(Debug)]
+pub struct ResolvedPathsConfig(RawConfig);
+
+fn resolve_path(workdir: &Path, path: PathBuf) -> PathBuf {
+    if path.is_absolute() {
+        path
+    } else {
+        workdir.join(path)
+    }
+}
+
+impl ResolvedPathsConfig {
+    /// Resolves all relative paths with respect to the work dir.
+    pub fn from(config: RawConfig) -> Self {
+        let workdir = config.workdir().to_path_buf();
+        Self(RawConfig {
+            collections: config
+                .collections
+                .into_iter()
+                .map(|mut c| {
+                    c.fwd_index = resolve_path(&workdir, c.fwd_index);
+                    c.inv_index = resolve_path(&workdir, c.inv_index);
+                    c
+                })
+                .collect(),
+            runs: config
+                .runs
+                .into_iter()
+                .map(|mut r| {
+                    r.output = resolve_path(&workdir, r.output);
+                    r
+                })
+                .collect(),
+            ..config
+        })
+    }
+}
+
+impl Config for ResolvedPathsConfig {
+    fn workdir(&self) -> &Path {
+        self.0.workdir()
+    }
+    fn source(&self) -> &Source {
+        &self.0.source()
+    }
+    fn collections(&self) -> &[Collection] {
+        &self.0.collections()
+    }
+    fn runs(&self) -> &[Run] {
+        &self.0.runs()
+    }
+    fn disable(&mut self, stage: Stage) {
+        self.0.disable(stage);
+    }
+    fn enabled(&self, stage: Stage) -> bool {
+        self.0.enabled(stage)
+    }
+    fn use_scorer(&self) -> bool {
+        self.0.use_scorer()
+    }
+    fn clean(&self) -> bool {
+        self.0.clean()
+    }
+    fn executor(&self) -> Result<Executor, Error> {
+        self.0.executor()
+    }
+}
+
+impl Resolved for ResolvedPathsConfig {}
 
 /// Source of PISA executables.
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
@@ -471,5 +604,76 @@ topics:
             }
         );
         Ok(())
+    }
+
+    #[test]
+    fn test_resolve_paths() {
+        let config = RawConfig {
+            workdir: PathBuf::from("/workdir"),
+            collections: vec![
+                Collection {
+                    name: String::from("wapo"),
+                    kind: CollectionKind::WashingtonPost,
+                    input_dir: PathBuf::from("/path/to/input"),
+                    fwd_index: PathBuf::from("/path/to/fwd"),
+                    inv_index: PathBuf::from("/path/to/inv"),
+                    encodings: vec![Encoding::from("ef")],
+                },
+                Collection {
+                    name: String::from("wapo2"),
+                    kind: CollectionKind::WashingtonPost,
+                    input_dir: PathBuf::from("input"),
+                    fwd_index: PathBuf::from("fwd"),
+                    inv_index: PathBuf::from("inv"),
+                    encodings: vec![Encoding::from("ef")],
+                },
+            ],
+            runs: vec![
+                Run {
+                    collection: String::from("wapo"),
+                    kind: RunKind::Benchmark,
+                    encodings: vec![Encoding::from("ef")],
+                    algorithms: vec![Algorithm::from("and")],
+                    topics: vec![Topics::Simple {
+                        path: PathBuf::from("/path/to/simple/topics"),
+                    }],
+                    output: "/path/to/output".into(),
+                },
+                Run {
+                    collection: String::from("wapo"),
+                    kind: RunKind::Benchmark,
+                    encodings: vec![Encoding::from("ef")],
+                    algorithms: vec![Algorithm::from("and")],
+                    topics: vec![Topics::Simple {
+                        path: PathBuf::from("/path/to/simple/topics"),
+                    }],
+                    output: "output".into(),
+                },
+            ],
+            source: Source::System,
+            clean: true,
+            ..RawConfig::default()
+        };
+        let config = ResolvedPathsConfig::from(config);
+        assert_eq!(
+            config.collection(0).fwd_index,
+            PathBuf::from("/path/to/fwd")
+        );
+        assert_eq!(
+            config.collection(0).inv_index,
+            PathBuf::from("/path/to/inv")
+        );
+        assert_eq!(
+            config.collection(1).fwd_index,
+            PathBuf::from("/workdir/fwd")
+        );
+        assert_eq!(
+            config.collection(1).inv_index,
+            PathBuf::from("/workdir/inv")
+        );
+        assert_eq!(config.run(0).output, PathBuf::from("/path/to/output"));
+        assert_eq!(config.run(1).output, PathBuf::from("/workdir/output"));
+        assert_eq!(config.source(), &Source::System);
+        assert!(config.clean());
     }
 }

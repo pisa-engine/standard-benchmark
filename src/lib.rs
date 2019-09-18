@@ -17,9 +17,9 @@ use regex::Regex;
 use std::path::Path;
 use std::process::Command;
 use std::{fmt, fs};
-use strum_macros::{Display, EnumIter, EnumString};
 
-pub mod config;
+mod config;
+pub use config::{Collection, Config, RawConfig, Resolved, ResolvedPathsConfig, Run, Stage};
 
 mod executor;
 pub use executor::Executor;
@@ -30,49 +30,6 @@ mod error;
 pub use error::Error;
 
 pub mod run;
-
-/// Available stages of the experiment.
-/// # Examples
-///
-/// All names are lowercase:
-///
-/// ```
-/// # extern crate stdbench;
-/// # use::stdbench::*;
-/// assert_eq!("compile".parse(), Ok(Stage::Compile));
-/// assert_eq!("build".parse(), Ok(Stage::BuildIndex));
-/// assert_eq!("parse".parse(), Ok(Stage::ParseCollection));
-/// assert_eq!("invert".parse(), Ok(Stage::Invert));
-/// assert!("?".parse::<Stage>().is_err());
-/// assert_eq!("compile", format!("{}", Stage::Compile));
-/// assert_eq!("build", format!("{}", Stage::BuildIndex));
-/// assert_eq!("parse", format!("{}", Stage::ParseCollection));
-/// assert_eq!("invert", format!("{}", Stage::Invert));
-/// ```
-#[cfg_attr(tarpaulin, skip)]
-#[derive(Debug, PartialEq, Eq, Hash, Copy, Clone, EnumString, Display, EnumIter)]
-pub enum Stage {
-    /// Compilation stage; includes things such as: fetching code, configuring,
-    /// and actual compilation of the source code. The exact meaning depends on
-    /// the type of the source being processed.
-    #[strum(serialize = "compile")]
-    Compile,
-    /// Includes building forward/inverted index and index compressing.
-    #[strum(serialize = "build")]
-    BuildIndex,
-    /// A subset of `BuildIndex`; means: build an inverted index but assume the
-    /// forward index has been already built (e.g., in a previous run).
-    #[strum(serialize = "parse")]
-    ParseCollection,
-    /// A subset of `ParseCollection`; means: use `parse_collection` with
-    /// `merge` subcommand to only merge previously produced batch files.
-    #[strum(serialize = "parse-batches")]
-    ParseBatches,
-    /// Inverting stage; mean: compress an inverted index but do not invert forward
-    /// index, assuming it has been done already.
-    #[strum(serialize = "invert")]
-    Invert,
-}
 
 /// If the parent directory of `path` does not exist, create it.
 ///
@@ -137,11 +94,10 @@ mod tests {
     use std::fs::Permissions;
     use std::os::unix::fs::PermissionsExt;
     use std::path::{Path, PathBuf};
-    use std::sync::Arc;
     use tempdir::TempDir;
 
     pub(crate) struct MockSetup {
-        pub config: Config,
+        pub config: ResolvedPathsConfig,
         pub executor: Executor,
         pub programs: HashMap<&'static str, PathBuf>,
         pub outputs: HashMap<&'static str, PathBuf>,
@@ -231,14 +187,14 @@ mod tests {
         let bin = tmp.path().join("bin");
         fs::create_dir(&bin).expect("Could not create bin directory");
 
-        let config = Config {
+        let config = ResolvedPathsConfig::from(RawConfig {
             workdir: tmp.path().to_path_buf(),
             source: Source::Path(bin.clone()),
             use_scorer: true,
             collections,
             runs,
-            ..Config::default()
-        };
+            ..RawConfig::default()
+        });
 
         let data_dir = tmp.path().join("coll").join("data");
         fs::create_dir_all(&data_dir).unwrap();
