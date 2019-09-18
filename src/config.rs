@@ -257,6 +257,7 @@ impl ResolvedPathsConfig {
                 .into_iter()
                 .map(|mut r| {
                     r.output = resolve_path(&workdir, r.output);
+                    r.compare_with = r.compare_with.map(|p| resolve_path(&workdir, p));
                     r
                 })
                 .collect(),
@@ -695,7 +696,7 @@ topics:
                     }],
                     output: "output".into(),
                     scorer: default_scorer(),
-                    compare_with: None,
+                    compare_with: Some(PathBuf::from("compare")),
                 },
             ],
             source: Source::System,
@@ -721,6 +722,10 @@ topics:
         );
         assert_eq!(config.run(0).output, PathBuf::from("/path/to/output"));
         assert_eq!(config.run(1).output, PathBuf::from("/workdir/output"));
+        assert_eq!(
+            config.run(1).compare_with,
+            Some(PathBuf::from("/workdir/compare"))
+        );
         assert_eq!(config.source(), &Source::System);
         assert!(config.clean());
     }
