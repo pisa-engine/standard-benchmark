@@ -4,10 +4,11 @@ use crate::{
     config::{Collection, Run, RunKind, Topics},
     error::Error,
     executor::Executor,
-    CommandDebug, Scorer,
+    Algorithm, CommandDebug, Encoding,
 };
 use failure::ResultExt;
 use itertools::iproduct;
+use serde::{Deserialize, Serialize};
 use std::{fs, path::PathBuf, process::Command};
 
 #[cfg_attr(tarpaulin, skip)]
@@ -21,29 +22,6 @@ fn queries_path(topics: &Topics, executor: &Executor) -> Result<String, Error> {
     }
 }
 
-/// Runs query benchmark for on a given executor, for a given run.
-///
-/// Fails if the run is not of type `Benchmark`.
-pub fn benchmark(
-    executor: &Executor,
-    run: &Run,
-    collection: &Collection,
-    scorer: Option<&Scorer>,
-) -> Result<String, Error> {
-    // TODO: loop
-    let topics = &run.topics[0];
-    let queries = queries_path(topics, executor)?;
-    let results = iproduct!(&run.algorithms, &run.encodings)
-        .map(|(algorithm, encoding)| {
-            executor.benchmark(&collection, encoding, algorithm, &queries, scorer)
-        })
-        .collect::<Result<Vec<String>, Error>>();
-    Ok(results?.iter().fold(String::new(), |mut acc, x| {
-        acc.push_str(&x);
-        acc
-    }))
-}
-
 /// The result of checking against a gold standard.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RunStatus {
@@ -53,6 +31,43 @@ pub enum RunStatus {
     CollectionUndefined(String),
     /// Regression with respect to the gold standard was detected.
     Regression(Vec<Diff>),
+}
+
+/// Benchmark results as obtained from `queries` in JSON format.
+#[derive(Serialize, Deserialize, Debug)]
+struct BenchmarkResults {
+    #[serde(rename = "type")]
+    kind: Encoding,
+    #[serde(rename = "query")]
+    algorithm: Algorithm,
+    #[serde(rename = "avg")]
+    avg_time: f32,
+    #[serde(rename = "q50")]
+    quantile_50: f32,
+    #[serde(rename = "q90")]
+    quantile_90: f32,
+    #[serde(rename = "q95")]
+    quantile_95: f32,
+}
+
+impl BenchmarkResults {
+    fn regressed_value(value: f32, gold: f32, margin: f32) -> bool {
+        value > gold * (1.0 + margin)
+    }
+    fn regressed(&self, other: &Self, margin: f32) -> Result<bool, Error> {
+        if self.kind != other.kind {
+            return Err(Error::from("Encodings do not match"));
+        }
+        if self.algorithm != other.algorithm {
+            return Err(Error::from("Algorithms do not match"));
+        }
+        if Self::regressed_value(self.avg_time, other.avg_time, margin)
+            || Self::regressed_value(self.quantile_50, other.quantile_50, margin)
+            || Self::regressed_value(self.quantile_90, other.quantile_90, margin)
+            || Self::regressed_value(self.quantile_95, other.quantile_95, margin)
+        {}
+        Ok(false)
+    }
 }
 
 /// Two paths to files that are supposed to be equal but are not.
@@ -112,17 +127,32 @@ pub fn process_run(
             }
         }
         RunKind::Benchmark => {
-            // let mut diffs: Vec<Diff> = Vec::new();
+            let mut diffs: Vec<Diff> = Vec::new();
             for (algorithm, encoding, (tid, queries)) in
                 iproduct!(&run.algorithms, &run.encodings, queries?.iter().enumerate())
             {
                 let results =
                     executor.benchmark(&collection, encoding, algorithm, &queries, scorer)?;
                 let path = format!("{}.{}.{}.results", base_path, algorithm, tid);
-                fs::write(&path, results)?;
+                fs::write(&path, &results)?;
+                if let Some(compare_with) = &run.compare_with {
+                    let results: BenchmarkResults = serde_json::from_str(&results)
+                        .context("Unable to parse benchmark results")?;
+                    let compare_path =
+                        format!("{}.{}.{}.trec_eval", compare_with.display(), algorithm, tid);
+                    let gold_standard: BenchmarkResults =
+                        serde_json::from_reader(fs::File::open(&compare_path)?)
+                            .context("Unable to parse benchmark gold standard")?;
+                    if results.regressed(&gold_standard, 0.01)? {
+                        diffs.push(Diff(PathBuf::from(compare_path), PathBuf::from(path)));
+                    }
+                }
             }
-            // TODO: Regression
-            Ok(RunStatus::Success)
+            if diffs.is_empty() {
+                Ok(RunStatus::Success)
+            } else {
+                Ok(RunStatus::Regression(diffs))
+            }
         }
     }
 }
