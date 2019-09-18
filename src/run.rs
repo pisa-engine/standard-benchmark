@@ -135,13 +135,13 @@ pub fn process_run(
             {
                 let results =
                     executor.benchmark(&collection, encoding, algorithm, &queries, scorer)?;
-                let path = format!("{}.{}.{}.results", base_path, algorithm, tid);
+                let path = format!("{}.{}.{}.bench", base_path, algorithm, tid);
                 fs::write(&path, &results)?;
                 if let Some(compare_with) = &run.compare_with {
                     let results: BenchmarkResults = serde_json::from_str(&results)
                         .context("Unable to parse benchmark results")?;
                     let compare_path =
-                        format!("{}.{}.{}.trec_eval", compare_with.display(), algorithm, tid);
+                        format!("{}.{}.{}.bench", compare_with.display(), algorithm, tid);
                     let gold_standard: BenchmarkResults = serde_json::from_reader(
                         fs::File::open(&compare_path).with_context(|_| compare_path.clone())?,
                     )
