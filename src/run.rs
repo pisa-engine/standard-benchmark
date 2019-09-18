@@ -105,8 +105,8 @@ pub fn process_run(
 mod tests {
     use super::*;
     use crate::tests::{mock_program, mock_set_up, EchoMode, EchoOutput, MockSetup};
+    use crate::Config;
     use crate::Error;
-    use std::path;
     use tempdir::TempDir;
 
     #[test]
@@ -120,7 +120,7 @@ mod tests {
             outputs,
             ..
         } = mock_set_up(&tmp);
-        evaluate(&executor, &config.runs[0], &config.collections[0], true).unwrap();
+        evaluate(&executor, &config.run(0), &config.collection(0), true).unwrap();
         assert_eq!(
             std::fs::read_to_string(outputs.get("evaluate_queries").unwrap()).unwrap(),
             format!(
@@ -162,7 +162,7 @@ mod tests {
             outputs,
             ..
         } = mock_setup;
-        process_run(&executor, &config.runs[1], &config.collections[0], true).unwrap();
+        process_run(&executor, &config.run(1), &config.collection(0), true).unwrap();
         assert_eq!(
             std::fs::read_to_string(outputs.get("evaluate_queries").unwrap()).unwrap(),
             format!(
@@ -178,15 +178,15 @@ mod tests {
                 tmp.path().join("topics").display(),
             )
         );
-        let trec_eval = programs.get("trec_eval").unwrap().to_str().unwrap();
-        let qrels = tmp
-            .path()
-            .join("qrels")
-            .into_os_string()
-            .into_string()
-            .unwrap();
-        let run = config.runs[1].output.to_str().unwrap().to_string();
         // TODO: Revisit when #5 addressed
+        // let trec_eval = programs.get("trec_eval").unwrap().to_str().unwrap();
+        // let qrels = tmp
+        //     .path()
+        //     .join("qrels")
+        //     .into_os_string()
+        //     .into_string()
+        //     .unwrap();
+        // let run = config.run(1).output.to_str().unwrap().to_string();
         // assert_eq!(
         //     EchoOutput::from(
         //         path::PathBuf::from(format!(
@@ -226,7 +226,7 @@ mod tests {
             outputs,
             ..
         } = mock_set_up(&tmp);
-        process_run(&executor, &config.runs[2], &config.collections[0], true)?;
+        process_run(&executor, &config.run(2), &config.collection(0), true)?;
         let actual = EchoOutput::from(outputs.get("queries").unwrap().as_path());
         let expected = EchoOutput::from(format!(
             "{0} -t block_simdbp -i {2}.block_simdbp -w {2}.wand -a wand \

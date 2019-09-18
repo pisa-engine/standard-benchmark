@@ -3,9 +3,9 @@ use log::{error, info};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::{env, fs, process};
-use stdbench::config::{Collection, Config, Stage};
 use stdbench::run::process_run;
 use stdbench::Error;
+use stdbench::{Collection, Config, RawConfig, ResolvedPathsConfig, Stage};
 use structopt::StructOpt;
 use strum::IntoEnumIterator;
 
@@ -45,7 +45,7 @@ struct Opt {
     no_scorer: bool,
 }
 
-fn filter_collections(mut config: &mut Config, collections: &[String]) {
+fn filter_collections(mut config: &mut RawConfig, collections: &[String]) {
     let colset = collections.iter().collect::<HashSet<&String>>();
     config.collections = std::mem::replace(&mut config.collections, vec![])
         .into_iter()
@@ -70,7 +70,7 @@ fn filter_collections(mut config: &mut Config, collections: &[String]) {
     //     .drain_filter(|r| colset.contains(&r.collection.as_ref()));
 }
 
-fn parse_config(args: Vec<String>, init_log: bool) -> Result<Option<Config>, Error> {
+fn parse_config(args: Vec<String>, init_log: bool) -> Result<Option<ResolvedPathsConfig>, Error> {
     let Opt {
         config_file,
         verbose,
@@ -105,7 +105,7 @@ fn parse_config(args: Vec<String>, init_log: bool) -> Result<Option<Config>, Err
         return Ok(None);
     }
     info!("Parsing config");
-    let mut config: Config = serde_yaml::from_reader(fs::File::open(config_file.unwrap())?)
+    let mut config: RawConfig = serde_yaml::from_reader(fs::File::open(config_file.unwrap())?)
         .context("Failed to parse config")?;
     for stage in suppress {
         config.disable(stage);
@@ -119,7 +119,7 @@ fn parse_config(args: Vec<String>, init_log: bool) -> Result<Option<Config>, Err
     if clean {
         config.clean = true;
     }
-    Ok(Some(config))
+    Ok(Some(ResolvedPathsConfig::from(config)))
 }
 
 #[cfg_attr(tarpaulin, skip)]
@@ -131,28 +131,27 @@ fn run() -> Result<(), Error> {
     let config = config.unwrap();
     info!("Config: {:?}", &config);
 
-    if config.clean {
-        std::fs::remove_dir_all(&config.workdir)?;
+    if config.clean() {
+        std::fs::remove_dir_all(&config.workdir())?;
     }
 
     let executor = config.executor()?;
     info!("Executor ready");
 
-    for collection in &config.collections {
+    for collection in config.collections() {
         stdbench::build::collection(&executor, collection, &config)?;
     }
     let collections: HashMap<String, &Collection> = config
-        .collections
+        .collections()
         .iter()
         .map(|c| (c.name.to_string(), c))
         .collect();
-    for run in &config.runs {
+    for run in config.runs() {
         if let Some(collection) = &collections.get(&run.collection) {
-            info!("{:?}", run);
-            process_run(&executor, run, collection, config.use_scorer)?;
+            info!("Processing run: {:?}", run);
+            process_run(&executor, run, collection, config.use_scorer())?;
         } else {
-            // TODO
-            error!("{:?}", run);
+            error!("Run failed: {:?}", run);
         }
     }
     Ok(())
@@ -214,8 +213,8 @@ collections:
             false,
         )?
         .unwrap();
-        assert!(!conf.stages[&Stage::Compile]);
-        assert_eq!(conf.use_scorer, true);
+        assert!(!conf.enabled(Stage::Compile));
+        assert!(conf.use_scorer());
 
         let conf = parse_config(
             [
@@ -232,9 +231,9 @@ collections:
             false,
         )?
         .unwrap();
-        let colnames: Vec<_> = conf.collections.iter().map(|c| c.name.clone()).collect();
+        let colnames: Vec<_> = conf.collections().iter().map(|c| c.name.clone()).collect();
         assert_eq!(colnames, vec!["wapo2".to_string()]);
-        assert_eq!(conf.use_scorer, false);
+        assert_eq!(conf.use_scorer(), false);
 
         assert!(parse_config(
             ["exe", "--print-stages"]

@@ -263,10 +263,10 @@ impl Executor {
 mod test {
     extern crate tempdir;
 
-    use crate::config::{Config, Encoding, Source, Stage};
+    use crate::config::{Encoding, RawConfig, ResolvedPathsConfig, Source};
     use crate::run::process_run;
     use crate::tests::{mock_set_up, MockSetup};
-    use crate::{Error, Executor};
+    use crate::{Config, Error, Executor, Stage};
     use std::fs::create_dir_all;
     use std::fs::Permissions;
     use std::os::unix::fs::PermissionsExt;
@@ -307,8 +307,8 @@ mod test {
     fn test_invert() {
         test_exec("invert", "Failed to invert index", |setup: &MockSetup| {
             setup.executor.invert(
-                &setup.config.collections[0].fwd_index,
-                &setup.config.collections[0].inv_index,
+                &setup.config.collection(0).fwd_index,
+                &setup.config.collection(0).inv_index,
                 setup.term_count,
             )
         });
@@ -322,7 +322,7 @@ mod test {
             "Failed to compress index",
             |setup: &MockSetup| {
                 setup.executor.compress(
-                    &setup.config.collections[0].fwd_index,
+                    &setup.config.collection(0).fwd_index,
                     &Encoding::from("block_simdbp"),
                 )
             },
@@ -338,7 +338,7 @@ mod test {
             |setup: &MockSetup| {
                 setup
                     .executor
-                    .create_wand_data(&setup.config.collections[0].inv_index, true)
+                    .create_wand_data(&setup.config.collection(0).inv_index, true)
             },
         );
     }
@@ -354,11 +354,11 @@ mod test {
         let permissions = Permissions::from_mode(0o744);
         std::fs::set_permissions(&program_path, permissions).unwrap();
 
-        let config = Config {
+        let config = ResolvedPathsConfig::from(RawConfig {
             workdir: PathBuf::from("workdir"),
             source: Source::Path(tmp.path().to_path_buf()),
-            ..Config::default()
-        };
+            ..RawConfig::default()
+        });
         let executor = config.executor().unwrap();
         let output = executor.command("program").output().unwrap();
         assert_eq!(std::str::from_utf8(&output.stdout).unwrap(), "ok\n");
@@ -367,9 +367,9 @@ mod test {
     #[test]
     fn test_git_executor_wrong_bin() {
         assert_eq!(
-            Config {
+            RawConfig {
                 source: Source::Path(PathBuf::from("/nonexistent/path")),
-                ..Config::default()
+                ..RawConfig::default()
             }
             .executor()
             .err(),
@@ -383,14 +383,14 @@ mod test {
         let workdir = tmp.path().join("work");
         create_dir_all(&workdir).unwrap();
 
-        let conf = Config {
+        let conf = ResolvedPathsConfig::from(RawConfig {
             workdir,
             source: Source::Git {
                 branch: "master".into(),
                 url: "http://examp.le".into(),
             },
-            ..Config::default()
-        };
+            ..RawConfig::default()
+        });
         let expected = "failed to resolve address for examp.le".to_string();
         assert_eq!(
             conf.executor().err().unwrap().to_string()[..expected.len()],
@@ -430,14 +430,35 @@ mod test {
     #[test]
     fn test_init_git() {
         let (_tmp, workdir, origin_dir) = set_up_git();
-        let conf = Config {
+        let conf = ResolvedPathsConfig::from(RawConfig {
             workdir: workdir.clone(),
             source: Source::Git {
                 url: origin_dir.to_string_lossy().to_string(),
                 branch: "master".into(),
             },
-            ..Config::default()
-        };
+            ..RawConfig::default()
+        });
+        assert_eq!(
+            conf.executor(),
+            Ok(Executor {
+                path: Some(workdir.join("pisa").join("build").join("bin"))
+            })
+        );
+    }
+
+    #[test]
+    fn test_init_git_exists() {
+        let (_tmp, workdir, origin_dir) = set_up_git();
+        let url = origin_dir.to_string_lossy().to_string();
+        git2::Repository::clone(&url, &workdir.join("pisa")).unwrap();
+        let conf = ResolvedPathsConfig::from(RawConfig {
+            workdir: workdir.clone(),
+            source: Source::Git {
+                url,
+                branch: "master".into(),
+            },
+            ..RawConfig::default()
+        });
         assert_eq!(
             conf.executor(),
             Ok(Executor {
@@ -449,14 +470,14 @@ mod test {
     #[test]
     fn test_init_git_suppress_compilation() {
         let (_tmp, workdir, origin_dir) = set_up_git();
-        let mut conf = Config {
+        let mut conf = ResolvedPathsConfig::from(RawConfig {
             workdir: workdir.clone(),
             source: Source::Git {
                 url: origin_dir.to_string_lossy().to_string(),
                 branch: "master".into(),
             },
-            ..Config::default()
-        };
+            ..RawConfig::default()
+        });
         conf.disable(Stage::Compile);
         assert_eq!(
             conf.executor().err(),
@@ -482,8 +503,8 @@ mod test {
             outputs,
             ..
         } = mock_set_up(&tmp);
-        let run = &config.runs[0];
-        let collection = &config.collections[0];
+        let run = &config.run(0);
+        let collection = &config.collection(0);
         process_run(&executor, run, collection, true).unwrap();
         let topics_path = if let crate::config::Topics::Trec {
             path: topics_path, ..
@@ -533,8 +554,8 @@ mod test {
             programs,
             ..
         } = mock_set_up(&tmp);
-        let run = &config.runs[0];
-        let collection = &config.collections[0];
+        let run = &config.run(0);
+        let collection = &config.collection(0);
         std::fs::write(
             programs.get("evaluate_queries").unwrap(),
             "#!/bin/bash\nexit 1",
@@ -552,8 +573,8 @@ mod test {
             programs,
             ..
         } = mock_set_up(&tmp);
-        let run = &config.runs[2];
-        let collection = &config.collections[0];
+        let run = &config.run(2);
+        let collection = &config.collection(0);
         std::fs::write(programs.get("queries").unwrap(), "#!/bin/bash\nexit 1").unwrap();
         assert!(process_run(&executor, run, collection, true).is_err());
     }
