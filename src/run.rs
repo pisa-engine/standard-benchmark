@@ -4,11 +4,11 @@ use crate::{
     config::{Collection, Run, RunKind, Topics},
     error::Error,
     executor::Executor,
-    CommandDebug,
+    CommandDebug, Scorer,
 };
 use failure::ResultExt;
 use itertools::iproduct;
-use std::{fs, process::Command};
+use std::{fs, path::PathBuf, process::Command};
 
 #[cfg_attr(tarpaulin, skip)]
 fn queries_path(topics: &Topics, executor: &Executor) -> Result<String, Error> {
@@ -21,25 +21,6 @@ fn queries_path(topics: &Topics, executor: &Executor) -> Result<String, Error> {
     }
 }
 
-/// Runs query evaluation for on a given executor, for a given run.
-///
-/// Fails if the run is not of type `Evaluate`.
-pub fn evaluate(
-    executor: &Executor,
-    run: &Run,
-    collection: &Collection,
-    use_scorer: bool,
-) -> Result<Vec<String>, Error> {
-    // TODO: loop
-    let topics = &run.topics[0];
-    let queries = queries_path(topics, executor)?;
-    iproduct!(&run.algorithms, &run.encodings)
-        .map(|(algorithm, encoding)| {
-            executor.evaluate_queries(&collection, encoding, algorithm, &queries, use_scorer)
-        })
-        .collect()
-}
-
 /// Runs query benchmark for on a given executor, for a given run.
 ///
 /// Fails if the run is not of type `Benchmark`.
@@ -47,14 +28,14 @@ pub fn benchmark(
     executor: &Executor,
     run: &Run,
     collection: &Collection,
-    use_scorer: bool,
+    scorer: Option<&Scorer>,
 ) -> Result<String, Error> {
     // TODO: loop
     let topics = &run.topics[0];
     let queries = queries_path(topics, executor)?;
     let results = iproduct!(&run.algorithms, &run.encodings)
         .map(|(algorithm, encoding)| {
-            executor.benchmark(&collection, encoding, algorithm, &queries, use_scorer)
+            executor.benchmark(&collection, encoding, algorithm, &queries, scorer)
         })
         .collect::<Result<Vec<String>, Error>>();
     Ok(results?.iter().fold(String::new(), |mut acc, x| {
@@ -63,40 +44,85 @@ pub fn benchmark(
     }))
 }
 
+/// The result of checking against a gold standard.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RunStatus {
+    /// Everything OK.
+    Success,
+    /// Failed due to missing collection in the configuration.
+    CollectionUndefined(String),
+    /// Regression with respect to the gold standard was detected.
+    Regression(Vec<Diff>),
+}
+
+/// Two paths to files that are supposed to be equal but are not.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Diff(pub PathBuf, pub PathBuf);
+
 /// Process a run (e.g., single precision evaluation or benchmark).
 pub fn process_run(
     executor: &Executor,
     run: &Run,
     collection: &Collection,
     use_scorer: bool,
-) -> Result<(), Error> {
+) -> Result<RunStatus, Error> {
+    let scorer = if use_scorer { Some(&run.scorer) } else { None };
+    let queries: Result<Vec<_>, Error> = run
+        .topics
+        .iter()
+        .map(|t| queries_path(t, executor))
+        .collect();
+    let base_path = &run.output.display();
     match &run.kind {
         RunKind::Evaluate { qrels } => {
-            for (output, algorithm) in evaluate(executor, run, collection, use_scorer)?
-                .iter()
-                .zip(&run.algorithms)
+            let mut diffs: Vec<Diff> = Vec::new();
+            for (algorithm, encoding, (tid, queries)) in
+                iproduct!(&run.algorithms, &run.encodings, queries?.iter().enumerate())
             {
-                let base_path = &run.output.display();
-                let results_output = format!("{}.{}.results", base_path, algorithm);
-                let trec_eval_output = format!("{}.{}.trec_eval", base_path, algorithm);
-                std::fs::write(&results_output, &output)?;
+                let results =
+                    executor.evaluate_queries(&collection, encoding, algorithm, queries, scorer)?;
+                let results_path = format!("{}.{}.{}.results", base_path, algorithm, tid);
+                let trec_eval_path = format!("{}.{}.{}.trec_eval", base_path, algorithm, tid);
+                fs::write(&results_path, &results)?;
                 let output = Command::new("trec_eval")
                     .arg("-q")
                     .arg("-a")
                     .arg(qrels.to_str().unwrap())
-                    .arg(results_output)
+                    .arg(results_path)
                     .log()
                     .output()?;
                 let eval_result = String::from_utf8(output.stdout)
                     .context("unable to parse result of trec_eval")?;
-                fs::write(trec_eval_output, eval_result)?;
+                fs::write(&trec_eval_path, &eval_result)?;
+                if let Some(compare_with) = &run.compare_with {
+                    let compare_path =
+                        format!("{}.{}.{}.trec_eval", compare_with.display(), algorithm, tid);
+                    if fs::read_to_string(&compare_path)? != eval_result {
+                        diffs.push(Diff(
+                            PathBuf::from(compare_path),
+                            PathBuf::from(trec_eval_path),
+                        ));
+                    }
+                }
             }
-            Ok(())
+            if diffs.is_empty() {
+                Ok(RunStatus::Success)
+            } else {
+                Ok(RunStatus::Regression(diffs))
+            }
         }
         RunKind::Benchmark => {
-            let output = benchmark(executor, run, collection, use_scorer)?;
-            fs::write(&run.output, output)?;
-            Ok(())
+            // let mut diffs: Vec<Diff> = Vec::new();
+            for (algorithm, encoding, (tid, queries)) in
+                iproduct!(&run.algorithms, &run.encodings, queries?.iter().enumerate())
+            {
+                let results =
+                    executor.benchmark(&collection, encoding, algorithm, &queries, scorer)?;
+                let path = format!("{}.{}.{}.results", base_path, algorithm, tid);
+                fs::write(&path, results)?;
+            }
+            // TODO: Regression
+            Ok(RunStatus::Success)
         }
     }
 }
@@ -120,7 +146,7 @@ mod tests {
             outputs,
             ..
         } = mock_set_up(&tmp);
-        evaluate(&executor, &config.run(0), &config.collection(0), true).unwrap();
+        process_run(&executor, &config.run(0), &config.collection(0), true).unwrap();
         assert_eq!(
             std::fs::read_to_string(outputs.get("evaluate_queries").unwrap()).unwrap(),
             format!(

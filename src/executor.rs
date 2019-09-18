@@ -1,7 +1,6 @@
 //! Objects and functions dealing with executing PISA command line tools.
 
-use crate::config::{Algorithm, Collection, Encoding};
-use crate::{CommandDebug, Error};
+use crate::{Algorithm, Collection, CommandDebug, Encoding, Error, Scorer};
 use boolinator::Boolinator;
 use failure::ResultExt;
 use std::path::{Path, PathBuf};
@@ -102,7 +101,7 @@ impl Executor {
     }
 
     /// Runs `create_freq_index` command.
-    pub fn create_wand_data<P>(&self, inv_index: P, use_scorer: bool) -> Result<(), Error>
+    pub fn create_wand_data<P>(&self, inv_index: P, scorer: Option<&Scorer>) -> Result<(), Error>
     where
         P: AsRef<Path>,
     {
@@ -112,8 +111,8 @@ impl Executor {
             .ok_or("Failed to parse inverted index path")?;
         let mut command = self.command("create_wand_data");
         command.args(&["-c", inv, "-o", &format!("{}.wand", inv)]);
-        if use_scorer {
-            command.args(&["--scorer", "bm25"]);
+        if let Some(scorer) = scorer {
+            command.args(&["--scorer", scorer.as_ref()]);
         }
         command
             .log()
@@ -179,7 +178,7 @@ impl Executor {
         encoding: &Encoding,
         algorithm: &Algorithm,
         queries: S,
-        use_scorer: bool,
+        scorer: Option<&Scorer>,
     ) -> Result<String, Error>
     where
         S: AsRef<str>,
@@ -203,9 +202,9 @@ impl Executor {
             .args(&["--documents", &format!("{}.docmap", fwd)])
             .args(&["--stemmer", "porter2"])
             .args(&["-k", "1000"]);
-        if use_scorer {
-            command.args(&["--scorer", "bm25"]);
-        };
+        if let Some(scorer) = scorer {
+            command.args(&["--scorer", scorer.as_ref()]);
+        }
         let output = command
             .log()
             .output()
@@ -224,7 +223,7 @@ impl Executor {
         encoding: &Encoding,
         algorithm: &Algorithm,
         queries: S,
-        use_scorer: bool,
+        scorer: Option<&Scorer>,
     ) -> Result<String, Error>
     where
         S: AsRef<str>,
@@ -247,8 +246,8 @@ impl Executor {
             .args(&["--terms", &format!("{}.termmap", fwd)])
             .args(&["--stemmer", "porter2"])
             .args(&["-k", "1000"]);
-        if use_scorer {
-            command.args(&["--scorer", "bm25"]);
+        if let Some(scorer) = scorer {
+            command.args(&["--scorer", scorer.as_ref()]);
         }
         let output = command.log().output().context("Failed to run queries")?;
         if output.status.success() {
@@ -263,10 +262,10 @@ impl Executor {
 mod test {
     extern crate tempdir;
 
-    use crate::config::{Encoding, RawConfig, ResolvedPathsConfig, Source};
     use crate::run::process_run;
     use crate::tests::{mock_set_up, MockSetup};
     use crate::{Config, Error, Executor, Stage};
+    use crate::{Encoding, RawConfig, ResolvedPathsConfig, Scorer, Source};
     use std::fs::create_dir_all;
     use std::fs::Permissions;
     use std::os::unix::fs::PermissionsExt;
@@ -336,9 +335,10 @@ mod test {
             "create_wand_data",
             "Failed to create WAND data",
             |setup: &MockSetup| {
-                setup
-                    .executor
-                    .create_wand_data(&setup.config.collection(0).inv_index, true)
+                setup.executor.create_wand_data(
+                    &setup.config.collection(0).inv_index,
+                    Some(&Scorer::from("bm25")),
+                )
             },
         );
     }

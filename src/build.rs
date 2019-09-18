@@ -132,6 +132,7 @@ pub fn collection<C: Config + Resolved>(
                 let (mut cat, mut parse) = parsing_commands(&executor, &collection)?;
                 let (reader, writer) = pipe().expect("Failed opening a pipe");
                 cat.log().stdout(writer).spawn()?;
+                drop(cat);
                 parse.stdin(reader);
                 parse.log().status()?.success().ok_or("Failed to parse")?;
             } else {
@@ -163,8 +164,20 @@ pub fn collection<C: Config + Resolved>(
             warn!("[{}] [build] [compress] Suppressed", name);
         }
         if config.enabled(Stage::Wand) {
-            info!("[{}] [build] [wand] Creating WAND data", name);
-            executor.create_wand_data(&collection.inv_index, config.use_scorer())?;
+            for scorer in &collection.scorers {
+                info!(
+                    "[{}] [build] [wand] Creating WAND data for {}",
+                    name, &scorer
+                );
+                executor.create_wand_data(
+                    &collection.inv_index,
+                    if config.use_scorer() {
+                        Some(&scorer)
+                    } else {
+                        None
+                    },
+                )?;
+            }
         } else {
             warn!("[{}] [build] [wand] Suppressed", name);
         }
@@ -373,6 +386,7 @@ mod tests {
             fwd_index: PathBuf::from("fwd"),
             inv_index: PathBuf::from("inv"),
             encodings: vec![],
+            scorers: crate::config::default_scorers(),
         };
         let (cat, parse) = parsing_commands(&executor, &cconf)?;
         assert_eq!(cat.to_string(), format!("cat {}", data_file.display()));
