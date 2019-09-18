@@ -348,11 +348,6 @@ mod tests {
         }
     }
 
-    #[derive(Debug, Default)]
-    pub(crate) struct TestLogger {
-        pub(crate) sinks: Arc<Option<usize>>,
-    }
-
     #[test]
     fn test_make_echo() {
         let tmp = TempDir::new("echo").expect("Failed to create echo dir");

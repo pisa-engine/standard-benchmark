@@ -124,19 +124,6 @@ impl Config {
         self.stages.get(&stage).cloned().unwrap_or(true)
     }
 
-    // fn git_clone(dir: &Path, url: &str) -> Result<(), Error> {
-    //     let status = Command::new("git")
-    //         .arg("clone")
-    //         .arg(&url.to_string())
-    //         .arg(dir.to_str().unwrap())
-    //         .status()?;
-    //     if status.success() {
-    //         Ok(())
-    //     } else {
-    //         Err(Error::from("git-clone has failed"))
-    //     }
-    // }
-
     /// Construct an executor for a set of PISA tools.
     pub fn executor(&self) -> Result<Executor, Error> {
         match &self.source {
