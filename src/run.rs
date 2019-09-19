@@ -6,6 +6,7 @@ use crate::{
     executor::Executor,
     Algorithm, CommandDebug, Encoding,
 };
+use cranky::ResultRecord;
 use failure::ResultExt;
 use itertools::iproduct;
 use serde::{Deserialize, Serialize};
@@ -98,6 +99,18 @@ pub fn process_run(
                     executor.evaluate_queries(&collection, encoding, algorithm, queries, scorer)?;
                 let results_path = format!("{}.{}.{}.results", base_path, algorithm, tid);
                 let trec_eval_path = format!("{}.{}.{}.trec_eval", base_path, algorithm, tid);
+                let mut results: Vec<ResultRecord> =
+                    cranky::read_records(std::io::Cursor::new(results))?;
+                results.sort_by(|lhs, rhs| {
+                    (&lhs.run, &lhs.iter, &lhs.qid, &lhs.score, &lhs.docid)
+                        .partial_cmp(&(&rhs.run, &rhs.iter, &rhs.qid, &rhs.score, &rhs.docid))
+                        .unwrap()
+                });
+                let results: String = results
+                    .into_iter()
+                    .map(|r| r.to_string())
+                    .collect::<Vec<_>>()
+                    .join("\n");
                 fs::write(&results_path, &results)?;
                 let output = Command::new("trec_eval")
                     .arg("-q")
