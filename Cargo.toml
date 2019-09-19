@@ -25,4 +25,4 @@ serde_yaml = "0.8"
 serde_json = "1.0"
 git2 = "0.10"
 structopt = "0.3"
-cranky = { git = "ssh://git@github.com:22/elshize/cranky.git" }
+cranky = "0.1"
