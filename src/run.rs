@@ -4,11 +4,13 @@ use crate::{
     config::{Collection, Run, RunKind, Topics},
     error::Error,
     executor::Executor,
-    CommandDebug,
+    Algorithm, CommandDebug, Encoding,
 };
+use cranky::ResultRecord;
 use failure::ResultExt;
 use itertools::iproduct;
-use std::{fs, process::Command};
+use serde::{Deserialize, Serialize};
+use std::{fs, path::PathBuf, process::Command};
 
 #[cfg_attr(tarpaulin, skip)]
 fn queries_path(topics: &Topics, executor: &Executor) -> Result<String, Error> {
@@ -21,47 +23,57 @@ fn queries_path(topics: &Topics, executor: &Executor) -> Result<String, Error> {
     }
 }
 
-/// Runs query evaluation for on a given executor, for a given run.
-///
-/// Fails if the run is not of type `Evaluate`.
-pub fn evaluate(
-    executor: &Executor,
-    run: &Run,
-    collection: &Collection,
-    use_scorer: bool,
-) -> Result<Vec<String>, Error> {
-    // TODO: loop
-    let topics = &run.topics[0];
-    let queries = queries_path(topics, executor)?;
-    iproduct!(&run.algorithms, &run.encodings)
-        .map(|(algorithm, encoding)| {
-            executor.evaluate_queries(&collection, encoding, algorithm, &queries, use_scorer)
-        })
-        .collect()
+/// The result of checking against a gold standard.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RunStatus {
+    /// Everything OK.
+    Success,
+    /// Failed due to missing collection in the configuration.
+    CollectionUndefined(String),
+    /// Regression with respect to the gold standard was detected.
+    Regression(Vec<Diff>),
 }
 
-/// Runs query benchmark for on a given executor, for a given run.
-///
-/// Fails if the run is not of type `Benchmark`.
-pub fn benchmark(
-    executor: &Executor,
-    run: &Run,
-    collection: &Collection,
-    use_scorer: bool,
-) -> Result<String, Error> {
-    // TODO: loop
-    let topics = &run.topics[0];
-    let queries = queries_path(topics, executor)?;
-    let results = iproduct!(&run.algorithms, &run.encodings)
-        .map(|(algorithm, encoding)| {
-            executor.benchmark(&collection, encoding, algorithm, &queries, use_scorer)
-        })
-        .collect::<Result<Vec<String>, Error>>();
-    Ok(results?.iter().fold(String::new(), |mut acc, x| {
-        acc.push_str(&x);
-        acc
-    }))
+/// Benchmark results as obtained from `queries` in JSON format.
+#[derive(Serialize, Deserialize, Debug)]
+struct BenchmarkResults {
+    #[serde(rename = "type")]
+    kind: Encoding,
+    #[serde(rename = "query")]
+    algorithm: Algorithm,
+    #[serde(rename = "avg")]
+    avg_time: f32,
+    #[serde(rename = "q50")]
+    quantile_50: f32,
+    #[serde(rename = "q90")]
+    quantile_90: f32,
+    #[serde(rename = "q95")]
+    quantile_95: f32,
 }
+
+impl BenchmarkResults {
+    fn regressed_value(value: f32, gold: f32, margin: f32) -> bool {
+        value > gold * (1.0 + margin)
+    }
+    fn regressed(&self, other: &Self, margin: f32) -> Result<bool, Error> {
+        if self.kind != other.kind {
+            return Err(Error::from("Encodings do not match"));
+        }
+        if self.algorithm != other.algorithm {
+            return Err(Error::from("Algorithms do not match"));
+        }
+        if Self::regressed_value(self.avg_time, other.avg_time, margin)
+            || Self::regressed_value(self.quantile_50, other.quantile_50, margin)
+            || Self::regressed_value(self.quantile_90, other.quantile_90, margin)
+            || Self::regressed_value(self.quantile_95, other.quantile_95, margin)
+        {}
+        Ok(false)
+    }
+}
+
+/// Two paths to files that are supposed to be equal but are not.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Diff(pub PathBuf, pub PathBuf);
 
 /// Process a run (e.g., single precision evaluation or benchmark).
 pub fn process_run(
@@ -69,34 +81,94 @@ pub fn process_run(
     run: &Run,
     collection: &Collection,
     use_scorer: bool,
-) -> Result<(), Error> {
+) -> Result<RunStatus, Error> {
+    let scorer = if use_scorer { Some(&run.scorer) } else { None };
+    let queries: Result<Vec<_>, Error> = run
+        .topics
+        .iter()
+        .map(|t| queries_path(t, executor))
+        .collect();
+    let base_path = &run.output.display();
     match &run.kind {
         RunKind::Evaluate { qrels } => {
-            for (output, algorithm) in evaluate(executor, run, collection, use_scorer)?
-                .iter()
-                .zip(&run.algorithms)
+            let mut diffs: Vec<Diff> = Vec::new();
+            for (algorithm, encoding, (tid, queries)) in
+                iproduct!(&run.algorithms, &run.encodings, queries?.iter().enumerate())
             {
-                let base_path = &run.output.display();
-                let results_output = format!("{}.{}.results", base_path, algorithm);
-                let trec_eval_output = format!("{}.{}.trec_eval", base_path, algorithm);
-                std::fs::write(&results_output, &output)?;
+                let results =
+                    executor.evaluate_queries(&collection, encoding, algorithm, queries, scorer)?;
+                let results_path = format!("{}.{}.{}.results", base_path, algorithm, tid);
+                let trec_eval_path = format!("{}.{}.{}.trec_eval", base_path, algorithm, tid);
+                let mut results: Vec<ResultRecord> =
+                    cranky::read_records(std::io::Cursor::new(results))?;
+                results.sort_by(|lhs, rhs| {
+                    (&lhs.run, &lhs.iter, &lhs.qid, &lhs.score, &lhs.docid)
+                        .partial_cmp(&(&rhs.run, &rhs.iter, &rhs.qid, &rhs.score, &rhs.docid))
+                        .unwrap()
+                });
+                let results: String = results
+                    .into_iter()
+                    .map(|r| r.to_string())
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                fs::write(&results_path, &results)?;
                 let output = Command::new("trec_eval")
                     .arg("-q")
                     .arg("-a")
                     .arg(qrels.to_str().unwrap())
-                    .arg(results_output)
+                    .arg(results_path)
                     .log()
                     .output()?;
                 let eval_result = String::from_utf8(output.stdout)
                     .context("unable to parse result of trec_eval")?;
-                fs::write(trec_eval_output, eval_result)?;
+                fs::write(&trec_eval_path, &eval_result)?;
+                if let Some(compare_with) = &run.compare_with {
+                    let compare_path =
+                        format!("{}.{}.{}.trec_eval", compare_with.display(), algorithm, tid);
+                    if fs::read_to_string(&compare_path).with_context(|_| compare_path.clone())?
+                        != eval_result
+                    {
+                        diffs.push(Diff(
+                            PathBuf::from(compare_path),
+                            PathBuf::from(trec_eval_path),
+                        ));
+                    }
+                }
             }
-            Ok(())
+            if diffs.is_empty() {
+                Ok(RunStatus::Success)
+            } else {
+                Ok(RunStatus::Regression(diffs))
+            }
         }
         RunKind::Benchmark => {
-            let output = benchmark(executor, run, collection, use_scorer)?;
-            fs::write(&run.output, output)?;
-            Ok(())
+            let mut diffs: Vec<Diff> = Vec::new();
+            for (algorithm, encoding, (tid, queries)) in
+                iproduct!(&run.algorithms, &run.encodings, queries?.iter().enumerate())
+            {
+                let results =
+                    executor.benchmark(&collection, encoding, algorithm, &queries, scorer)?;
+                let path = format!("{}.{}.{}.bench", base_path, algorithm, tid);
+                fs::write(&path, &results)?;
+                if let Some(compare_with) = &run.compare_with {
+                    let results: BenchmarkResults = serde_json::from_str(&results)
+                        .context("Unable to parse benchmark results")?;
+                    let compare_path =
+                        format!("{}.{}.{}.bench", compare_with.display(), algorithm, tid);
+                    let gold_standard: BenchmarkResults = serde_json::from_reader(
+                        fs::File::open(&compare_path).with_context(|_| compare_path.clone())?,
+                    )
+                    .context("Unable to parse benchmark gold standard")?;
+                    if results.regressed(&gold_standard, 0.01)? {
+                        diffs.push(Diff(PathBuf::from(compare_path), PathBuf::from(path)));
+                    }
+                }
+            }
+            if diffs.is_empty() {
+                Ok(RunStatus::Success)
+            } else {
+                Ok(RunStatus::Regression(diffs))
+            }
         }
     }
 }
@@ -120,7 +192,7 @@ mod tests {
             outputs,
             ..
         } = mock_set_up(&tmp);
-        evaluate(&executor, &config.run(0), &config.collection(0), true).unwrap();
+        process_run(&executor, &config.run(0), &config.collection(0), true).unwrap();
         assert_eq!(
             std::fs::read_to_string(outputs.get("evaluate_queries").unwrap()).unwrap(),
             format!(

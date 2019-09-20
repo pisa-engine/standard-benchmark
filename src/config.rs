@@ -257,6 +257,7 @@ impl ResolvedPathsConfig {
                 .into_iter()
                 .map(|mut r| {
                     r.output = resolve_path(&workdir, r.output);
+                    r.compare_with = r.compare_with.map(|p| resolve_path(&workdir, p));
                     r
                 })
                 .collect(),
@@ -379,6 +380,28 @@ impl AsRef<str> for Encoding {
     }
 }
 
+/// Posting list encoding name.
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+pub struct Scorer(pub String);
+
+impl From<&str> for Scorer {
+    fn from(encoding: &str) -> Self {
+        Self(String::from(encoding))
+    }
+}
+
+impl fmt::Display for Scorer {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl AsRef<str> for Scorer {
+    fn as_ref(&self) -> &str {
+        self.0.as_ref()
+    }
+}
+
 /// Field to use when using TREC topic format.
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 #[serde(rename_all = "lowercase")]
@@ -419,6 +442,10 @@ pub enum Topics {
     },
 }
 
+pub(crate) fn default_scorers() -> Vec<Scorer> {
+    vec![Scorer::from("bm25")]
+}
+
 /// Collection built before experiments.
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct Collection {
@@ -434,6 +461,9 @@ pub struct Collection {
     pub inv_index: PathBuf,
     /// List of encodings with which to compress the inverted index.
     pub encodings: Vec<Encoding>,
+    /// List of scorers for which to build WAND data.
+    #[serde(default = "default_scorers")]
+    pub scorers: Vec<Scorer>,
 }
 
 /// Type of experiment.
@@ -447,6 +477,10 @@ pub enum RunKind {
     },
     /// Query speed performance.
     Benchmark,
+}
+
+pub(crate) fn default_scorer() -> Scorer {
+    Scorer::from("bm25")
 }
 
 /// An experimental run.
@@ -464,6 +498,12 @@ pub struct Run {
     pub output: PathBuf,
     /// A list of topic/query files.
     pub topics: Vec<Topics>,
+    /// Ranking scoring function.
+    #[serde(default = "default_scorer")]
+    pub scorer: Scorer,
+    /// A path prefix to results of another run.
+    #[serde(default)]
+    pub compare_with: Option<PathBuf>,
 }
 
 #[cfg(test)]
@@ -557,6 +597,7 @@ encodings:
                 fwd_index: PathBuf::from("/path/to/fwd"),
                 inv_index: PathBuf::from("/path/to/inv"),
                 encodings: vec![Encoding::from("block_simdbp"), Encoding::from("ef")],
+                scorers: default_scorers(),
             }
         );
         Ok(())
@@ -600,7 +641,9 @@ topics:
                         path: PathBuf::from("/path/to/trec/topics")
                     },
                 ],
-                output: "/path/to/output".into()
+                output: "/path/to/output".into(),
+                scorer: default_scorer(),
+                compare_with: None,
             }
         );
         Ok(())
@@ -618,6 +661,7 @@ topics:
                     fwd_index: PathBuf::from("/path/to/fwd"),
                     inv_index: PathBuf::from("/path/to/inv"),
                     encodings: vec![Encoding::from("ef")],
+                    scorers: default_scorers(),
                 },
                 Collection {
                     name: String::from("wapo2"),
@@ -626,6 +670,7 @@ topics:
                     fwd_index: PathBuf::from("fwd"),
                     inv_index: PathBuf::from("inv"),
                     encodings: vec![Encoding::from("ef")],
+                    scorers: default_scorers(),
                 },
             ],
             runs: vec![
@@ -638,6 +683,8 @@ topics:
                         path: PathBuf::from("/path/to/simple/topics"),
                     }],
                     output: "/path/to/output".into(),
+                    scorer: default_scorer(),
+                    compare_with: None,
                 },
                 Run {
                     collection: String::from("wapo"),
@@ -648,6 +695,8 @@ topics:
                         path: PathBuf::from("/path/to/simple/topics"),
                     }],
                     output: "output".into(),
+                    scorer: default_scorer(),
+                    compare_with: Some(PathBuf::from("compare")),
                 },
             ],
             source: Source::System,
@@ -673,6 +722,10 @@ topics:
         );
         assert_eq!(config.run(0).output, PathBuf::from("/path/to/output"));
         assert_eq!(config.run(1).output, PathBuf::from("/workdir/output"));
+        assert_eq!(
+            config.run(1).compare_with,
+            Some(PathBuf::from("/workdir/compare"))
+        );
         assert_eq!(config.source(), &Source::System);
         assert!(config.clean());
     }

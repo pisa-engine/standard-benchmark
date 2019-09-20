@@ -3,9 +3,8 @@ use log::{error, info};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::{env, fs, process};
-use stdbench::run::process_run;
-use stdbench::Error;
-use stdbench::{Collection, Config, RawConfig, ResolvedPathsConfig, Stage};
+use stdbench::run::{process_run, RunStatus};
+use stdbench::{Collection, Config, Error, RawConfig, ResolvedPathsConfig, Stage};
 use structopt::StructOpt;
 use strum::IntoEnumIterator;
 
@@ -122,11 +121,16 @@ fn parse_config(args: Vec<String>, init_log: bool) -> Result<Option<ResolvedPath
     Ok(Some(ResolvedPathsConfig::from(config)))
 }
 
+enum FinalStatus {
+    Success,
+    FailedRuns(Vec<RunStatus>),
+}
+
 #[cfg_attr(tarpaulin, skip)]
-fn run() -> Result<(), Error> {
+fn run() -> Result<FinalStatus, Error> {
     let config = parse_config(env::args().collect(), true)?;
     if config.is_none() {
-        return Ok(());
+        return Ok(FinalStatus::Success);
     }
     let config = config.unwrap();
     info!("Config: {:?}", &config);
@@ -146,22 +150,52 @@ fn run() -> Result<(), Error> {
         .iter()
         .map(|c| (c.name.to_string(), c))
         .collect();
-    for run in config.runs() {
-        if let Some(collection) = &collections.get(&run.collection) {
-            info!("Processing run: {:?}", run);
-            process_run(&executor, run, collection, config.use_scorer())?;
-        } else {
-            error!("Run failed: {:?}", run);
-        }
+    let statuses: Result<Vec<_>, Error> = config
+        .runs()
+        .into_iter()
+        .map(|run| {
+            if let Some(collection) = &collections.get(&run.collection) {
+                info!("Processing run: {:?}", run);
+                process_run(&executor, run, collection, config.use_scorer())
+            } else {
+                Ok(RunStatus::CollectionUndefined(run.collection.clone()))
+            }
+        })
+        .collect();
+    let failed_runs: Vec<_> = statuses?
+        .into_iter()
+        .filter(|status| status != &RunStatus::Success)
+        .collect();
+    if failed_runs.is_empty() {
+        Ok(FinalStatus::Success)
+    } else {
+        Ok(FinalStatus::FailedRuns(failed_runs))
     }
-    Ok(())
 }
 
 #[cfg_attr(tarpaulin, skip)]
 fn main() {
-    if let Err(err) = run() {
-        error!("{}", err);
-        process::exit(1);
+    match run() {
+        Err(err) => {
+            error!("{}", err);
+            process::exit(1);
+        }
+        Ok(FinalStatus::Success) => {
+            info!("Success!");
+        }
+        Ok(FinalStatus::FailedRuns(failed_runs)) => {
+            error!("Regressions found:");
+            for failed_run in failed_runs.into_iter() {
+                match failed_run {
+                    RunStatus::Success => unreachable!(),
+                    RunStatus::CollectionUndefined(name) => {
+                        error!("Collection undefined: {}", name)
+                    }
+                    RunStatus::Regression(diffs) => error!("{:?}", diffs),
+                }
+            }
+            process::exit(1);
+        }
     }
 }
 

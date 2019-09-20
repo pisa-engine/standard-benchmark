@@ -19,7 +19,10 @@ use std::process::Command;
 use std::{fmt, fs};
 
 mod config;
-pub use config::{Collection, Config, RawConfig, Resolved, ResolvedPathsConfig, Run, Stage};
+pub use config::{
+    Algorithm, Collection, Config, Encoding, RawConfig, Resolved, ResolvedPathsConfig, Run, Scorer,
+    Source, Stage,
+};
 
 mod executor;
 pub use executor::Executor;
@@ -127,6 +130,7 @@ mod tests {
                 fwd_index: tmp.path().join("fwd"),
                 inv_index: tmp.path().join("inv"),
                 encodings: vec!["block_simdbp".into(), "block_qmx".into()],
+                scorers: default_scorers(),
             },
             Collection {
                 name: "gov2".to_string(),
@@ -135,6 +139,7 @@ mod tests {
                 fwd_index: tmp.path().join("gov2/fwd"),
                 inv_index: tmp.path().join("gov2/inv"),
                 encodings: vec!["block_simdbp".into(), "block_qmx".into()],
+                scorers: default_scorers(),
             },
             Collection {
                 name: "cw09b".to_string(),
@@ -143,6 +148,7 @@ mod tests {
                 fwd_index: tmp.path().join("cw09b/fwd"),
                 inv_index: tmp.path().join("cw09b/inv"),
                 encodings: vec!["block_simdbp".into(), "block_qmx".into()],
+                scorers: default_scorers(),
             },
         ];
         let runs = vec![
@@ -158,6 +164,8 @@ mod tests {
                     field: TopicField::Title,
                 }],
                 output: tmp.path().join("output.trec"),
+                scorer: default_scorer(),
+                compare_with: None,
             },
             Run {
                 collection: "wapo".into(),
@@ -170,6 +178,8 @@ mod tests {
                     path: tmp.path().join("topics"),
                 }],
                 output: tmp.path().join("output.trec"),
+                scorer: default_scorer(),
+                compare_with: None,
             },
             Run {
                 collection: "wapo".into(),
@@ -181,6 +191,8 @@ mod tests {
                     field: TopicField::Title,
                 }],
                 output: tmp.path().join("bench.json"),
+                scorer: default_scorer(),
+                compare_with: None,
             },
         ];
 
