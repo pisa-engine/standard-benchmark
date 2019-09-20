@@ -276,7 +276,7 @@ impl Config for RawConfig {
                     repo.reset(&commit, git2::ResetType::Hard, None)?;
                     let mut cmake = Command::new("cmake");
                     for var in cmake_vars {
-                        cmake.arg(var.to_string());
+                        cmake.arg(format!("-D{}", var.to_string()));
                     }
                     cmake
                         .arg("..")
