@@ -4,7 +4,9 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::{env, fs, process};
 use stdbench::run::{process_run, RunStatus};
-use stdbench::{Collection, Config, Error, RawConfig, ResolvedPathsConfig, Stage};
+use stdbench::{
+    CMakeVar, Collection, Config, Error, RawConfig, ResolvedPathsConfig, Source, Stage,
+};
 use structopt::StructOpt;
 use strum::IntoEnumIterator;
 
@@ -42,6 +44,11 @@ struct Opt {
     /// No --scorer in runs (for backwards compatibility)
     #[structopt(long)]
     no_scorer: bool,
+
+    /// CMake flags, e.g., `PISA_ENABLE_TESTING=OFF`.
+    /// Only for git source.
+    #[structopt(long = "cmake-vars")]
+    cmake_vars: Vec<CMakeVar>,
 }
 
 fn filter_collections(mut config: &mut RawConfig, collections: &[String]) {
@@ -79,6 +86,7 @@ fn parse_config(args: Vec<String>, init_log: bool) -> Result<Option<ResolvedPath
         collections,
         clean,
         no_scorer,
+        cmake_vars,
     } = Opt::from_iter_safe(&args).unwrap_or_else(|err| err.exit());
     if init_log {
         let log_level = match verbose {
@@ -111,6 +119,16 @@ fn parse_config(args: Vec<String>, init_log: bool) -> Result<Option<ResolvedPath
     }
     if !collections.is_empty() {
         filter_collections(&mut config, &collections);
+    }
+    if let Source::Git {
+        cmake_vars: inner_cmake_vars,
+        ..
+    } = &mut config.source
+    {
+        if !cmake_vars.is_empty() {
+            inner_cmake_vars.clear();
+            inner_cmake_vars.extend(cmake_vars);
+        }
     }
     if no_scorer {
         config.use_scorer = false;
@@ -152,7 +170,7 @@ fn run() -> Result<FinalStatus, Error> {
         .collect();
     let statuses: Result<Vec<_>, Error> = config
         .runs()
-        .into_iter()
+        .iter()
         .map(|run| {
             if let Some(collection) = &collections.get(&run.collection) {
                 info!("Processing run: {:?}", run);

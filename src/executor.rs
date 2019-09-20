@@ -388,6 +388,7 @@ mod test {
             source: Source::Git {
                 branch: "master".into(),
                 url: "http://examp.le".into(),
+                cmake_vars: vec![],
             },
             ..RawConfig::default()
         });
@@ -435,6 +436,7 @@ mod test {
             source: Source::Git {
                 url: origin_dir.to_string_lossy().to_string(),
                 branch: "master".into(),
+                cmake_vars: vec![],
             },
             ..RawConfig::default()
         });
@@ -456,6 +458,7 @@ mod test {
             source: Source::Git {
                 url,
                 branch: "master".into(),
+                cmake_vars: vec![],
             },
             ..RawConfig::default()
         });
@@ -475,6 +478,7 @@ mod test {
             source: Source::Git {
                 url: origin_dir.to_string_lossy().to_string(),
                 branch: "master".into(),
+                cmake_vars: vec![],
             },
             ..RawConfig::default()
         });

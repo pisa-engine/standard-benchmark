@@ -7,8 +7,10 @@ use failure::ResultExt;
 use log::warn;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::convert::{Into, TryFrom};
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::str::FromStr;
 use std::{fmt, fs};
 use strum_macros::{Display, EnumIter, EnumString};
 
@@ -89,6 +91,72 @@ fn default_stages() -> HashMap<Stage, bool> {
     .cloned()
     .map(|stage| (stage, true))
     .collect()
+}
+
+/// Represents a variable passed to `CMake`, such as `-DCMAKE_BUILD_TYPE:BOOL=OFF`,
+/// where `:BOOL` is optional.
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+#[serde(try_from = "String", into = "String")]
+pub struct CMakeVar {
+    pub(crate) name: String,
+    pub(crate) typedef: Option<String>,
+    pub(crate) value: String,
+}
+
+impl FromStr for CMakeVar {
+    type Err = Error;
+    fn from_str(var: &str) -> Result<Self, Self::Err> {
+        if let Some(pos) = var.find('=') {
+            let (name_type, value) = var.split_at(pos);
+            let pos = name_type.find(':').unwrap_or_else(|| name_type.len());
+            let (name, typedef) = name_type.split_at(pos);
+            Ok(Self {
+                name: String::from(name),
+                typedef: if typedef.is_empty() {
+                    None
+                } else {
+                    Some(String::from(&typedef[1..]))
+                },
+                value: String::from(&value[1..]),
+            })
+        } else {
+            Err(Error::from("CMake var definition must contain `=`."))
+        }
+    }
+}
+
+impl TryFrom<&str> for CMakeVar {
+    type Error = Error;
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        value.parse()
+    }
+}
+
+impl TryFrom<String> for CMakeVar {
+    type Error = Error;
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        value[..].parse()
+    }
+}
+
+impl fmt::Display for CMakeVar {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{}{}={}",
+            self.name,
+            self.typedef
+                .as_ref()
+                .map_or_else(String::new, |t| format!(":{}", t)),
+            self.value
+        )
+    }
+}
+
+impl Into<String> for CMakeVar {
+    fn into(self) -> String {
+        format!("{}", self)
+    }
 }
 
 /// Main config interface.
@@ -187,7 +255,11 @@ impl Config for RawConfig {
     fn executor(&self) -> Result<Executor, Error> {
         match &self.source {
             Source::System => Ok(Executor::new()),
-            Source::Git { branch, url } => {
+            Source::Git {
+                branch,
+                url,
+                cmake_vars,
+            } => {
                 let dir = self.workdir.join("pisa");
                 let repo = if dir.exists() {
                     git2::Repository::open(&dir)?
@@ -202,7 +274,12 @@ impl Config for RawConfig {
                         .resolve_reference_from_short_name(&format!("origin/{}", &branch))?
                         .peel(git2::ObjectType::Any)?;
                     repo.reset(&commit, git2::ResetType::Hard, None)?;
-                    process("cmake -DCMAKE_BUILD_TYPE=Release ..")
+                    let mut cmake = Command::new("cmake");
+                    for var in cmake_vars {
+                        cmake.arg(var.to_string());
+                    }
+                    cmake
+                        .arg("..")
                         .current_dir(&build_dir)
                         .status()?
                         .success()
@@ -298,6 +375,14 @@ impl Config for ResolvedPathsConfig {
 
 impl Resolved for ResolvedPathsConfig {}
 
+fn default_cmake_vars() -> Vec<CMakeVar> {
+    vec![CMakeVar {
+        name: "CMAKE_BUILD_TYPE".to_string(),
+        typedef: None,
+        value: "Release".to_string(),
+    }]
+}
+
 /// Source of PISA executables.
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 #[serde(rename_all = "lowercase")]
@@ -308,6 +393,9 @@ pub enum Source {
         branch: String,
         /// HTTPS URL of the repository
         url: String,
+        /// CMake flags, e.g., `-DPISA_ENABLE_TESTING=OFF`.
+        #[serde(default = "default_cmake_vars")]
+        cmake_vars: Vec<CMakeVar>,
     },
     /// Executables in a given directory.
     Path(PathBuf),
@@ -512,6 +600,19 @@ mod test {
     use serde_yaml;
 
     #[test]
+    fn test_cmake_var() {
+        let var: CMakeVar = "CMAKE_BUILD_TYPE:BOOL=ON".parse().unwrap();
+        assert_eq!(
+            var,
+            CMakeVar {
+                name: "CMAKE_BUILD_TYPE".to_string(),
+                typedef: Some("BOOL".to_string()),
+                value: "ON".to_string()
+            }
+        );
+    }
+
+    #[test]
     fn test_parse_source() -> Result<(), serde_yaml::Error> {
         let source: Source = serde_yaml::from_str(
             "git:
@@ -522,7 +623,46 @@ mod test {
             source,
             Source::Git {
                 branch: "master".to_string(),
-                url: "https://github.com/pisa-engine/pisa.git".to_string()
+                url: "https://github.com/pisa-engine/pisa.git".to_string(),
+                cmake_vars: vec![CMakeVar {
+                    name: "CMAKE_BUILD_TYPE".to_string(),
+                    typedef: None,
+                    value: "Release".to_string(),
+                }]
+            }
+        );
+
+        let source: Source = serde_yaml::from_str(
+            "git:
+  branch: master
+  url: https://github.com/pisa-engine/pisa.git
+  cmake_vars:
+    - CMAKE_BUILD_TYPE:BOOL=Release
+    - PISA_ENABLE_TESTING=OFF
+    - PISA_ENABLE_BENCHMARKING:BOOL=False",
+        )?;
+        assert_eq!(
+            source,
+            Source::Git {
+                branch: "master".to_string(),
+                url: "https://github.com/pisa-engine/pisa.git".to_string(),
+                cmake_vars: vec![
+                    CMakeVar {
+                        name: "CMAKE_BUILD_TYPE".to_string(),
+                        typedef: Some("BOOL".to_string()),
+                        value: "Release".to_string(),
+                    },
+                    CMakeVar {
+                        name: "PISA_ENABLE_TESTING".to_string(),
+                        typedef: None,
+                        value: "OFF".to_string(),
+                    },
+                    CMakeVar {
+                        name: "PISA_ENABLE_BENCHMARKING".to_string(),
+                        typedef: Some("BOOL".to_string()),
+                        value: "False".to_string(),
+                    },
+                ]
             }
         );
 
