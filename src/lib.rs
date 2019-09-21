@@ -20,8 +20,8 @@ use std::{fmt, fs};
 
 mod config;
 pub use config::{
-    Algorithm, Collection, Config, Encoding, RawConfig, Resolved, ResolvedPathsConfig, Run, Scorer,
-    Source, Stage,
+    Algorithm, CMakeVar, Collection, Config, Encoding, RawConfig, Resolved, ResolvedPathsConfig,
+    Run, Scorer, Source, Stage,
 };
 
 mod executor;

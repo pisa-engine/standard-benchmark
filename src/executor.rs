@@ -388,13 +388,13 @@ mod test {
             source: Source::Git {
                 branch: "master".into(),
                 url: "http://examp.le".into(),
+                cmake_vars: vec![],
             },
             ..RawConfig::default()
         });
-        let expected = "failed to resolve address for examp.le".to_string();
         assert_eq!(
-            conf.executor().err().unwrap().to_string()[..expected.len()],
-            expected
+            conf.executor().err().unwrap().to_string(),
+            "git-clone failed"
         );
     }
 
@@ -435,6 +435,7 @@ mod test {
             source: Source::Git {
                 url: origin_dir.to_string_lossy().to_string(),
                 branch: "master".into(),
+                cmake_vars: vec![],
             },
             ..RawConfig::default()
         });
@@ -456,6 +457,7 @@ mod test {
             source: Source::Git {
                 url,
                 branch: "master".into(),
+                cmake_vars: vec![],
             },
             ..RawConfig::default()
         });
@@ -475,6 +477,7 @@ mod test {
             source: Source::Git {
                 url: origin_dir.to_string_lossy().to_string(),
                 branch: "master".into(),
+                cmake_vars: vec![],
             },
             ..RawConfig::default()
         });
