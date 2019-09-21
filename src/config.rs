@@ -283,6 +283,7 @@ impl<'a> CMake<'a> {
         }
         cmd.arg("..")
             .current_dir(self.dir)
+            .log()
             .status()?
             .success()
             .ok_or("cmake failed")?;
@@ -291,6 +292,7 @@ impl<'a> CMake<'a> {
     fn build(&self) -> Result<(), Error> {
         process("cmake --build .")
             .current_dir(self.dir)
+            .log()
             .status()?
             .success()
             .ok_or("cmake --build failed")?;
