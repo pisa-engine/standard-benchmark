@@ -392,10 +392,9 @@ mod test {
             },
             ..RawConfig::default()
         });
-        let expected = "failed to resolve address for examp.le".to_string();
         assert_eq!(
-            conf.executor().err().unwrap().to_string()[..expected.len()],
-            expected
+            conf.executor().err().unwrap().to_string(),
+            "git-clone failed"
         );
     }
 

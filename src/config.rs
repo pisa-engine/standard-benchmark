@@ -1,7 +1,7 @@
 //! This module contains all the config definitions that are deserialized
 //! from a YAML configuration file.
 
-use crate::{Error, Executor};
+use crate::{CommandDebug, Error, Executor};
 use boolinator::Boolinator;
 use failure::ResultExt;
 use log::warn;
@@ -226,6 +226,78 @@ pub struct RawConfig {
     pub clean: bool,
 }
 
+struct GitRepository<'a> {
+    dir: &'a Path,
+}
+
+impl<'a> GitRepository<'a> {
+    fn open(dir: &'a Path) -> Self {
+        Self { dir }
+    }
+    fn clone(url: &str, dir: &'a Path) -> Result<Self, Error> {
+        Command::new("git")
+            .arg("clone")
+            .arg(url)
+            .arg(dir)
+            .log()
+            .status()?
+            .success()
+            .ok_or("git-clone failed")?;
+        Ok(Self { dir })
+    }
+    fn reset(&self) -> Result<(), Error> {
+        Command::new("git")
+            .current_dir(self.dir)
+            .arg("reset")
+            .arg("--hard")
+            .log()
+            .status()?
+            .success()
+            .ok_or(Error::from("git-reset failed"))
+    }
+    fn checkout(&self, branch: &str) -> Result<(), Error> {
+        Command::new("git")
+            .current_dir(self.dir)
+            .arg("checkout")
+            .arg(branch)
+            .log()
+            .status()?
+            .success()
+            .ok_or(Error::from("git-checkout failed"))
+    }
+}
+
+struct CMake<'a> {
+    cmake_vars: &'a [CMakeVar],
+    dir: &'a Path,
+}
+
+impl<'a> CMake<'a> {
+    fn new(cmake_vars: &'a [CMakeVar], dir: &'a Path) -> Self {
+        Self { cmake_vars, dir }
+    }
+    fn configure(&self) -> Result<(), Error> {
+        let mut cmd = Command::new("cmake");
+        for var in self.cmake_vars {
+            cmd.arg(format!("-D{}", var.to_string()));
+        }
+        cmd.arg("..")
+            .current_dir(self.dir)
+            .status()?
+            .success()
+            .ok_or("cmake failed")?;
+        Ok(())
+    }
+    fn build(&self) -> Result<(), Error> {
+        process("cmake --build .")
+            .current_dir(self.dir)
+            .status()?
+            .success()
+            .ok_or("cmake --build failed")?;
+        Ok(())
+    }
+}
+
 impl Config for RawConfig {
     fn workdir(&self) -> &Path {
         self.workdir.as_ref()
@@ -262,33 +334,18 @@ impl Config for RawConfig {
             } => {
                 let dir = self.workdir.join("pisa");
                 let repo = if dir.exists() {
-                    git2::Repository::open(&dir)?
+                    GitRepository::open(&dir)
                 } else {
-                    git2::Repository::clone(&url, &dir)?
+                    GitRepository::clone(&url, &dir)?
                 };
                 let build_dir = dir.join("build");
                 fs::create_dir_all(&build_dir).context("Could not create build directory")?;
                 if self.stages.get(&Stage::Compile).cloned().unwrap_or(true) {
-                    repo.find_remote("origin")?.fetch(&[&branch], None, None)?;
-                    let commit = repo
-                        .resolve_reference_from_short_name(&format!("origin/{}", &branch))?
-                        .peel(git2::ObjectType::Any)?;
-                    repo.reset(&commit, git2::ResetType::Hard, None)?;
-                    let mut cmake = Command::new("cmake");
-                    for var in cmake_vars {
-                        cmake.arg(format!("-D{}", var.to_string()));
-                    }
-                    cmake
-                        .arg("..")
-                        .current_dir(&build_dir)
-                        .status()?
-                        .success()
-                        .ok_or("cmake failed")?;
-                    process("cmake --build .")
-                        .current_dir(&build_dir)
-                        .status()?
-                        .success()
-                        .ok_or("cmake --build failed")?;
+                    repo.reset()?;
+                    repo.checkout(&branch)?;
+                    let cmake = CMake::new(&cmake_vars, &build_dir);
+                    cmake.configure()?;
+                    cmake.build()?;
                 } else {
                     warn!("Compilation has been suppressed");
                 }
