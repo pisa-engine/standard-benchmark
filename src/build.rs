@@ -69,6 +69,32 @@ fn parsing_commands(
     collection: &Collection,
 ) -> Result<(Command, Command), Error> {
     match &collection.kind {
+        CollectionKind::Robust => {
+            let find_output = Command::new("find")
+                .arg(&collection.input_dir)
+                .args(&["-type", "f"])
+                .args(&["-name", "*.*z"])
+                .arg("(")
+                .args(&["-path", "*/disk4/fr94/[0-9]*/*"])
+                .args(&["-o", "-path", "*/disk4/ft/ft*"])
+                .args(&["-o", "-path", "*/disk5/fbis/fb*"])
+                .args(&["-o", "-path", "*/disk5/latimes/la*"])
+                .arg(")")
+                .log()
+                .output()?;
+            let find_output = String::from_utf8_lossy(&find_output.stdout);
+            let input_files: Vec<_> = find_output.split('\n').collect();
+            let mut cat = Command::new("zcat");
+            cat.args(&input_files);
+            let mut parse = executor.command("parse_collection");
+            parse
+                .args(&["-o", collection.fwd_index.to_str().unwrap()])
+                .args(&["-f", "trectext"])
+                .args(&["--stemmer", "porter2"])
+                .args(&["--content-parser", "html"])
+                .args(&["--batch-size", "1000"]);
+            Ok((cat, parse))
+        }
         CollectionKind::Warc => {
             let input_files = resolve_files(collection.input_dir.join("*/*.gz"))?;
             let mut cat = Command::new("zcat");

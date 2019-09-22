@@ -21,6 +21,18 @@ fn process(args: &'static str) -> Command {
     cmd
 }
 
+pub(crate) fn resolve_paths<I, P>(paths: I) -> Result<Vec<PathBuf>, Error>
+where
+    I: Iterator<Item = P>,
+    P: AsRef<Path>,
+{
+    let mut files: Vec<PathBuf> = Vec::new();
+    for pattern in paths {
+        files.extend(resolve_files(pattern)?);
+    }
+    Ok(files)
+}
+
 pub(crate) fn resolve_files<P: AsRef<Path>>(path: P) -> Result<Vec<PathBuf>, Error> {
     let pattern = path.as_ref().to_str().unwrap();
     let files: Vec<_> = glob::glob(pattern)
@@ -477,6 +489,8 @@ impl Default for Source {
 pub enum CollectionKind {
     /// -f trecweb
     TrecWeb,
+    /// Robust04 collection. Uses `-f trectext`.
+    Robust,
     /// -f wapo
     WashingtonPost,
     /// -f warc
