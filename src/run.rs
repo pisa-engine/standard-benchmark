@@ -102,8 +102,8 @@ pub fn process_run(
                 let mut results: Vec<ResultRecord> =
                     cranky::read_records(std::io::Cursor::new(results))?;
                 results.sort_by(|lhs, rhs| {
-                    (&lhs.run, &lhs.iter, &lhs.qid, &lhs.score, &lhs.docid)
-                        .partial_cmp(&(&rhs.run, &rhs.iter, &rhs.qid, &rhs.score, &rhs.docid))
+                    (&lhs.run, &lhs.iter, &lhs.qid, &-lhs.score, &lhs.docid)
+                        .partial_cmp(&(&rhs.run, &rhs.iter, &rhs.qid, &-rhs.score, &rhs.docid))
                         .unwrap()
                 });
                 let results: String = results
