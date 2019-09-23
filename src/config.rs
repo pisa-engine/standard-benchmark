@@ -21,18 +21,6 @@ fn process(args: &'static str) -> Command {
     cmd
 }
 
-pub(crate) fn resolve_paths<I, P>(paths: I) -> Result<Vec<PathBuf>, Error>
-where
-    I: Iterator<Item = P>,
-    P: AsRef<Path>,
-{
-    let mut files: Vec<PathBuf> = Vec::new();
-    for pattern in paths {
-        files.extend(resolve_files(pattern)?);
-    }
-    Ok(files)
-}
-
 pub(crate) fn resolve_files<P: AsRef<Path>>(path: P) -> Result<Vec<PathBuf>, Error> {
     let pattern = path.as_ref().to_str().unwrap();
     let files: Vec<_> = glob::glob(pattern)
@@ -147,7 +135,7 @@ impl TryFrom<&str> for CMakeVar {
 impl TryFrom<String> for CMakeVar {
     type Error = Error;
     fn try_from(value: String) -> Result<Self, Self::Error> {
-        value[..].parse()
+        (&value).parse()
     }
 }
 
@@ -238,15 +226,15 @@ pub struct RawConfig {
     pub clean: bool,
 }
 
-struct GitRepository<'a> {
+pub(crate) struct GitRepository<'a> {
     dir: &'a Path,
 }
 
 impl<'a> GitRepository<'a> {
-    fn open(dir: &'a Path) -> Self {
+    pub(crate) fn open(dir: &'a Path) -> Self {
         Self { dir }
     }
-    fn clone(url: &str, dir: &'a Path) -> Result<Self, Error> {
+    pub(crate) fn clone(url: &str, dir: &'a Path) -> Result<Self, Error> {
         Command::new("git")
             .arg("clone")
             .arg(url)
@@ -257,7 +245,7 @@ impl<'a> GitRepository<'a> {
             .ok_or("git-clone failed")?;
         Ok(Self { dir })
     }
-    fn reset(&self) -> Result<(), Error> {
+    pub(crate) fn reset(&self) -> Result<(), Error> {
         Command::new("git")
             .current_dir(self.dir)
             .arg("reset")
@@ -267,7 +255,7 @@ impl<'a> GitRepository<'a> {
             .success()
             .ok_or(Error::from("git-reset failed"))
     }
-    fn checkout(&self, branch: &str) -> Result<(), Error> {
+    pub(crate) fn checkout(&self, branch: &str) -> Result<(), Error> {
         Command::new("git")
             .current_dir(self.dir)
             .arg("checkout")
@@ -491,6 +479,11 @@ pub enum CollectionKind {
     TrecWeb,
     /// Robust04 collection. Uses `-f trectext`.
     Robust,
+    /// NYT collection. Uses `-f plaintext`.
+    /// This works for a pre-processed file: originally, NYT is in XML format,
+    /// but here we assume it's already in plain. It will look for `*.plain`
+    /// file in the directory.
+    NewYorkTimes,
     /// -f wapo
     WashingtonPost,
     /// -f warc
@@ -673,6 +666,11 @@ mod test {
     use serde_yaml;
 
     #[test]
+    fn test_true_default() {
+        assert!(true_default());
+    }
+
+    #[test]
     fn test_cmake_var() {
         let var: CMakeVar = "CMAKE_BUILD_TYPE:BOOL=ON".parse().unwrap();
         assert_eq!(
@@ -683,6 +681,35 @@ mod test {
                 value: "ON".to_string()
             }
         );
+        assert_eq!(
+            &format!(
+                "{}",
+                CMakeVar {
+                    name: "CMAKE_BUILD_TYPE".to_string(),
+                    typedef: Some("BOOL".to_string()),
+                    value: "ON".to_string()
+                }
+            ),
+            "CMAKE_BUILD_TYPE:BOOL=ON"
+        );
+        assert_eq!(
+            &format!(
+                "{}",
+                CMakeVar {
+                    name: "CMAKE_BUILD_TYPE".to_string(),
+                    typedef: None,
+                    value: "ON".to_string()
+                }
+            ),
+            "CMAKE_BUILD_TYPE=ON"
+        );
+        let strvar: String = CMakeVar {
+            name: "CMAKE_BUILD_TYPE".to_string(),
+            typedef: Some("BOOL".to_string()),
+            value: "ON".to_string(),
+        }
+        .into();
+        assert_eq!(&strvar, "CMAKE_BUILD_TYPE:BOOL=ON");
     }
 
     #[test]

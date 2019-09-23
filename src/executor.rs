@@ -260,8 +260,7 @@ impl Executor {
 
 #[cfg(test)]
 mod test {
-    extern crate tempdir;
-
+    use crate::config::GitRepository;
     use crate::run::process_run;
     use crate::tests::{mock_set_up, MockSetup};
     use crate::{Config, Error, Executor, Stage};
@@ -451,7 +450,7 @@ mod test {
     fn test_init_git_exists() {
         let (_tmp, workdir, origin_dir) = set_up_git();
         let url = origin_dir.to_string_lossy().to_string();
-        git2::Repository::clone(&url, &workdir.join("pisa")).unwrap();
+        GitRepository::clone(&url, &workdir.join("pisa")).unwrap();
         let conf = ResolvedPathsConfig::from(RawConfig {
             workdir: workdir.clone(),
             source: Source::Git {

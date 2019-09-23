@@ -16,6 +16,7 @@ use os_pipe::pipe;
 use std::{
     fs::File,
     io::{BufRead, BufReader},
+    path::Path,
     process::Command,
 };
 
@@ -64,11 +65,29 @@ fn merge_parsed_batches(executor: &Executor, collection: &Collection) -> Result<
     Ok(())
 }
 
+fn parse_collection_cmd(executor: &Executor, fwd_index: &Path, format: &str) -> Command {
+    let mut cmd = executor.command("parse_collection");
+    cmd.arg("-o")
+        .arg(fwd_index)
+        .args(&["-f", format])
+        .args(&["--stemmer", "porter2"])
+        .args(&["--content-parser", "html"])
+        .args(&["--batch-size", "1000"]);
+    cmd
+}
+
 fn parsing_commands(
     executor: &Executor,
     collection: &Collection,
 ) -> Result<(Command, Command), Error> {
     match &collection.kind {
+        CollectionKind::NewYorkTimes => {
+            let input_files = resolve_files(collection.input_dir.join("*.plain"))?;
+            let mut cat = Command::new("cat");
+            cat.args(&input_files);
+            let parse = parse_collection_cmd(&executor, &collection.fwd_index, "plaintext");
+            Ok((cat, parse))
+        }
         CollectionKind::Robust => {
             let find_output = Command::new("find")
                 .arg(&collection.input_dir)
@@ -86,52 +105,28 @@ fn parsing_commands(
             let input_files: Vec<_> = find_output.split('\n').collect();
             let mut cat = Command::new("zcat");
             cat.args(&input_files);
-            let mut parse = executor.command("parse_collection");
-            parse
-                .args(&["-o", collection.fwd_index.to_str().unwrap()])
-                .args(&["-f", "trectext"])
-                .args(&["--stemmer", "porter2"])
-                .args(&["--content-parser", "html"])
-                .args(&["--batch-size", "1000"]);
+            let parse = parse_collection_cmd(&executor, &collection.fwd_index, "trectext");
             Ok((cat, parse))
         }
         CollectionKind::Warc => {
             let input_files = resolve_files(collection.input_dir.join("*/*.gz"))?;
             let mut cat = Command::new("zcat");
             cat.args(&input_files);
-            let mut parse = executor.command("parse_collection");
-            parse
-                .args(&["-o", collection.fwd_index.to_str().unwrap()])
-                .args(&["-f", "warc"])
-                .args(&["--stemmer", "porter2"])
-                .args(&["--content-parser", "html"])
-                .args(&["--batch-size", "1000"]);
+            let parse = parse_collection_cmd(&executor, &collection.fwd_index, "warc");
             Ok((cat, parse))
         }
         CollectionKind::TrecWeb => {
             let input_files = resolve_files(collection.input_dir.join("*/*.gz"))?;
             let mut cat = Command::new("zcat");
             cat.args(&input_files);
-            let mut parse = executor.command("parse_collection");
-            parse
-                .args(&["-o", collection.fwd_index.to_str().unwrap()])
-                .args(&["-f", "trecweb"])
-                .args(&["--stemmer", "porter2"])
-                .args(&["--content-parser", "html"])
-                .args(&["--batch-size", "1000"]);
+            let parse = parse_collection_cmd(&executor, &collection.fwd_index, "trecweb");
             Ok((cat, parse))
         }
         CollectionKind::WashingtonPost => {
             let input_files = resolve_files(collection.input_dir.join("data/*.jl"))?;
             let mut cat = Command::new("cat");
             cat.args(&input_files);
-            let mut parse = executor.command("parse_collection");
-            parse
-                .args(&["-o", collection.fwd_index.to_str().unwrap()])
-                .args(&["-f", "wapo"])
-                .args(&["--stemmer", "porter2"])
-                .args(&["--content-parser", "html"])
-                .args(&["--batch-size", "1000"]);
+            let parse = parse_collection_cmd(&executor, &collection.fwd_index, "wapo");
             Ok((cat, parse))
         }
     }
@@ -218,6 +213,7 @@ mod tests {
     use super::*;
     use crate::tests::{mock_set_up, MockSetup};
     use crate::CommandDebug;
+    use std::collections::HashSet;
     use std::fs;
     use std::path::PathBuf;
     use tempdir::TempDir;
@@ -420,6 +416,284 @@ mod tests {
             parse.to_string(),
             [
                 "parse_collection -o fwd -f wapo --stemmer porter2",
+                "--content-parser html --batch-size 1000"
+            ]
+            .join(" ")
+        );
+        Ok(())
+    }
+
+    fn mkfiles(root: &Path, paths: &[&str]) -> Result<(), Error> {
+        for path in paths {
+            if path.ends_with('/') {
+                fs::create_dir(root.join(path))?;
+            } else {
+                File::create(root.join(path))?;
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn test_make_files() {
+        let tmp = TempDir::new("tmp").unwrap();
+        mkfiles(
+            tmp.path(),
+            &[
+                "file1",
+                "file2",
+                "subdir/",
+                "subdir/file3",
+                "subdir/file4",
+                "subdir/subdir/",
+                "subdir/subdir/file5",
+            ],
+        )
+        .unwrap();
+        assert!(tmp.path().join("file1").exists());
+        assert!(tmp.path().join("file2").exists());
+        assert!(tmp.path().join("subdir").join("file3").exists());
+        assert!(tmp.path().join("subdir").join("file4").exists());
+        assert!(tmp
+            .path()
+            .join("subdir")
+            .join("subdir")
+            .join("file5")
+            .exists());
+    }
+
+    #[test]
+    fn test_parsing_command_robust() -> Result<(), Error> {
+        let tmp = TempDir::new("tmp").unwrap();
+        mkfiles(
+            tmp.path(),
+            &[
+                "disk4/",
+                "disk4/cr/",
+                "disk4/cr/hfiles/",
+                "disk4/cr/hfiles/cr93e1.z",
+                "disk4/cr/hfiles/cr93e2.z",
+                "disk4/dtds/",
+                "disk4/dtds/credtd.z",
+                "disk4/dtds/crhdtd.z",
+                "disk4/dtds/fr94dtd.z",
+                "disk4/dtds/ftdtd.z",
+                "disk4/fr94/",
+                "disk4/fr94/01/",
+                "disk4/fr94/01/fr940104.0z",
+                "disk4/fr94/01/fr940104.1z",
+                "disk4/fr94/02/",
+                "disk4/fr94/02/fr940202.0z",
+                "disk4/fr94/02/fr940202.1z",
+                "disk4/fr94/aux/",
+                "disk4/fr94/aux/frcheck.c",
+                "disk4/fr94/aux/frfoot.c",
+                "disk4/fr94/readchg.z",
+                "disk4/fr94/readmefr.z",
+                "disk4/ft/",
+                "disk4/ft/readmeft.z",
+                "disk4/ft/readmeft.z",
+                "disk4/ft/ft911/",
+                "disk4/ft/ft911/ft911_1.z",
+                "disk4/ft/ft911/ft911_2.z",
+                "disk4/ft/ft921/",
+                "disk4/ft/ft921/ft921_1.z",
+                "disk4/ft/ft921/ft921_2.z",
+                "disk5/",
+                "disk5/dtds/",
+                "disk5/dtds/credtd.z",
+                "disk5/dtds/crhdtd.z",
+                "disk5/dtds/fr94dtd.z",
+                "disk5/dtds/ftdtd.z",
+                "disk5/fbis/",
+                "disk5/fbis/readchg.txt",
+                "disk5/fbis/fb396001.z",
+                "disk5/fbis/fb396002.z",
+                "disk5/latimes/",
+                "disk5/latimes/la123190.z",
+                "disk5/latimes/readchg.txt",
+                "disk5/latimes/readmela.txt",
+            ],
+        )
+        .unwrap();
+
+        let executor = Executor::default();
+        let collection = Collection {
+            name: "robust".to_string(),
+            kind: CollectionKind::Robust,
+            input_dir: tmp.path().to_path_buf(),
+            fwd_index: PathBuf::from("fwd"),
+            inv_index: PathBuf::from("inv"),
+            encodings: vec![],
+            scorers: crate::config::default_scorers(),
+        };
+        let (cat, parse) = parsing_commands(&executor, &collection)?;
+        let actual_files: HashSet<String> = cat
+            .to_string()
+            .split(' ')
+            .skip(1)
+            .map(String::from)
+            .collect();
+        let expected_files: HashSet<_> = [
+            "disk4/fr94/01/fr940104.0z",
+            "disk4/fr94/01/fr940104.1z",
+            "disk4/fr94/02/fr940202.0z",
+            "disk4/fr94/02/fr940202.1z",
+            "disk4/ft/ft911/ft911_1.z",
+            "disk4/ft/ft911/ft911_2.z",
+            "disk4/ft/ft921/ft921_1.z",
+            "disk4/ft/ft921/ft921_2.z",
+            "disk5/fbis/fb396001.z",
+            "disk5/fbis/fb396002.z",
+            "disk5/latimes/la123190.z",
+        ]
+        .iter()
+        .map(|p| tmp.path().join(p).to_string_lossy().to_string())
+        .collect();
+        assert_eq!(actual_files, expected_files);
+        assert_eq!(
+            parse.to_string(),
+            [
+                "parse_collection -o fwd -f trectext --stemmer porter2",
+                "--content-parser html --batch-size 1000"
+            ]
+            .join(" ")
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_parsing_command_nyt() -> Result<(), Error> {
+        let tmp = TempDir::new("tmp").unwrap();
+        mkfiles(tmp.path(), &["nyt.plain"]).unwrap();
+
+        let executor = Executor::default();
+        let collection = Collection {
+            name: "robust".to_string(),
+            kind: CollectionKind::NewYorkTimes,
+            input_dir: tmp.path().to_path_buf(),
+            fwd_index: PathBuf::from("fwd"),
+            inv_index: PathBuf::from("inv"),
+            encodings: vec![],
+            scorers: crate::config::default_scorers(),
+        };
+        let (cat, parse) = parsing_commands(&executor, &collection)?;
+        assert_eq!(
+            cat.to_string(),
+            format!("cat {}", tmp.path().join("nyt.plain").display())
+        );
+        assert_eq!(
+            parse.to_string(),
+            [
+                "parse_collection -o fwd -f plaintext --stemmer porter2",
+                "--content-parser html --batch-size 1000"
+            ]
+            .join(" ")
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_parsing_command_warc() -> Result<(), Error> {
+        let tmp = TempDir::new("tmp").unwrap();
+        mkfiles(
+            tmp.path(),
+            &[
+                "00/",
+                "00/00.gz",
+                "00/01.gz",
+                "00/xyz",
+                "00/0.gz1",
+                "01/",
+                "01/00.gz",
+                "xyz/",
+                "xyz/00.gz",
+                "00.gz",
+                "xyz.txt",
+            ],
+        )
+        .unwrap();
+
+        let executor = Executor::default();
+        let collection = Collection {
+            name: "robust".to_string(),
+            kind: CollectionKind::Warc,
+            input_dir: tmp.path().to_path_buf(),
+            fwd_index: PathBuf::from("fwd"),
+            inv_index: PathBuf::from("inv"),
+            encodings: vec![],
+            scorers: crate::config::default_scorers(),
+        };
+        let (cat, parse) = parsing_commands(&executor, &collection)?;
+        let actual_files: HashSet<String> = cat
+            .to_string()
+            .split(' ')
+            .skip(1)
+            .map(String::from)
+            .collect();
+        let expected_files: HashSet<_> = ["00/00.gz", "00/01.gz", "01/00.gz", "xyz/00.gz"]
+            .iter()
+            .map(|p| tmp.path().join(p).to_string_lossy().to_string())
+            .collect();
+        assert_eq!(actual_files, expected_files);
+        assert_eq!(
+            parse.to_string(),
+            [
+                "parse_collection -o fwd -f warc --stemmer porter2",
+                "--content-parser html --batch-size 1000"
+            ]
+            .join(" ")
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_parsing_command_trecweb() -> Result<(), Error> {
+        let tmp = TempDir::new("tmp").unwrap();
+        mkfiles(
+            tmp.path(),
+            &[
+                "00/",
+                "00/00.gz",
+                "00/01.gz",
+                "00/xyz",
+                "00/0.gz1",
+                "01/",
+                "01/00.gz",
+                "xyz/",
+                "xyz/00.gz",
+                "00.gz",
+                "xyz.txt",
+            ],
+        )
+        .unwrap();
+
+        let executor = Executor::default();
+        let collection = Collection {
+            name: "robust".to_string(),
+            kind: CollectionKind::TrecWeb,
+            input_dir: tmp.path().to_path_buf(),
+            fwd_index: PathBuf::from("fwd"),
+            inv_index: PathBuf::from("inv"),
+            encodings: vec![],
+            scorers: crate::config::default_scorers(),
+        };
+        let (cat, parse) = parsing_commands(&executor, &collection)?;
+        let actual_files: HashSet<String> = cat
+            .to_string()
+            .split(' ')
+            .skip(1)
+            .map(String::from)
+            .collect();
+        let expected_files: HashSet<_> = ["00/00.gz", "00/01.gz", "01/00.gz", "xyz/00.gz"]
+            .iter()
+            .map(|p| tmp.path().join(p).to_string_lossy().to_string())
+            .collect();
+        assert_eq!(actual_files, expected_files);
+        assert_eq!(
+            parse.to_string(),
+            [
+                "parse_collection -o fwd -f trecweb --stemmer porter2",
                 "--content-parser html --batch-size 1000"
             ]
             .join(" ")
