@@ -296,6 +296,7 @@ mod tests {
         Stdout,
     }
 
+    #[cfg(unix)]
     pub(crate) fn make_echo<P, Q>(program: P, output: Q, mode: EchoMode) -> Result<(), Error>
     where
         P: AsRef<Path>,
