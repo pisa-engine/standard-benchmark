@@ -322,6 +322,15 @@ impl<'a> GitRepository<'a> {
             .success()
             .ok_or(Error::from("git-reset failed"))
     }
+    pub(crate) fn pull(&self) -> Result<(), Error> {
+        Command::new("git")
+            .current_dir(self.dir)
+            .arg("pull")
+            .log()
+            .status()?
+            .success()
+            .ok_or(Error::from("git-pull failed"))
+    }
     pub(crate) fn checkout(&self, branch: &str) -> Result<(), Error> {
         Command::new("git")
             .current_dir(self.dir)
@@ -418,6 +427,7 @@ impl Config for RawConfig {
                 if self.stages.get(&Stage::Compile).cloned().unwrap_or(true) {
                     repo.reset()?;
                     repo.checkout(&branch)?;
+                    repo.pull()?;
                     let cmake = CMake::new(&cmake_vars, &build_dir);
                     cmake.configure()?;
                     cmake.build()?;
