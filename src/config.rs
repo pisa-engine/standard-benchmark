@@ -3,10 +3,12 @@
 
 use crate::{CommandDebug, Error, Executor};
 use boolinator::Boolinator;
+use failure::format_err;
 use failure::ResultExt;
+use itertools::iproduct;
 use log::warn;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::convert::{Into, TryFrom};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -457,11 +459,23 @@ fn resolve_path(workdir: &Path, path: PathBuf) -> PathBuf {
     }
 }
 
+trait PathExists {
+    fn exists_or(&self, message: &str) -> Result<(), Error>;
+}
+
+impl PathExists for Path {
+    fn exists_or(&self, message: &str) -> Result<(), Error> {
+        self.exists()
+            .ok_or_else(|| format_err!("{}: {}", message, self.display()))?;
+        Ok(())
+    }
+}
+
 impl ResolvedPathsConfig {
     /// Resolves all relative paths with respect to the work dir.
-    pub fn from(config: RawConfig) -> Self {
+    pub fn from(config: RawConfig) -> Result<Self, Error> {
         let workdir = config.workdir().to_path_buf();
-        Self(RawConfig {
+        let config = Self(RawConfig {
             collections: config
                 .collections
                 .into_iter()
@@ -481,7 +495,50 @@ impl ResolvedPathsConfig {
                 })
                 .collect(),
             ..config
-        })
+        });
+        config.verify()?;
+        Ok(config)
+    }
+
+    fn verify(&self) -> Result<(), Error> {
+        let mut collection_names: HashSet<&str> = HashSet::new();
+        for collection in self.collections() {
+            collection.input_dir.exists_or("Collection dir not found")?;
+            collection_names.insert(&collection.name);
+        }
+        for run in self.runs() {
+            collection_names
+                .contains(&run.collection.as_ref())
+                .ok_or_else(|| format_err!("Collection not defined: {}", run.collection))?;
+            if let RunKind::Evaluate { qrels } = &run.kind {
+                qrels.exists_or("Qrels file not found")?;
+            }
+            for topics in &run.topics {
+                let topics_path = match topics {
+                    Topics::Trec { path, .. } | Topics::Simple { path } => path,
+                };
+                topics_path.exists_or("Topics not found")?;
+            }
+            if let Some(compare_with) = &run.compare_with {
+                for (algorithm, topics_idx) in iproduct!(&run.algorithms, 0..run.topics.len()) {
+                    let bench_path = format!(
+                        "{}.{}.{}.bench",
+                        compare_with.display(),
+                        algorithm,
+                        topics_idx
+                    );
+                    PathBuf::from(bench_path).exists_or("Missing baseline")?;
+                    let trec_eval_path = format!(
+                        "{}.{}.{}.trec_eval",
+                        compare_with.display(),
+                        algorithm,
+                        topics_idx
+                    );
+                    PathBuf::from(trec_eval_path).exists_or("Missing baseline")?;
+                }
+            }
+        }
+        Ok(())
     }
 }
 
@@ -752,7 +809,9 @@ pub struct Run {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::tests::mkfiles;
     use serde_yaml;
+    use tempdir::TempDir;
 
     #[test]
     fn test_true_default() {
@@ -980,24 +1039,35 @@ topics:
 
     #[test]
     fn test_resolve_paths() {
+        let tmp = TempDir::new("resolve_paths").unwrap();
+        mkfiles(
+            tmp.path(),
+            &[
+                "input",
+                "simple_topics",
+                "compare.and.0.bench",
+                "compare.and.0.trec_eval",
+            ],
+        )
+        .unwrap();
         let config = RawConfig {
-            workdir: PathBuf::from("/workdir"),
+            workdir: tmp.path().to_path_buf(),
             collections: vec![
                 Collection {
                     name: String::from("wapo"),
                     kind: CollectionKind::WashingtonPost,
-                    input_dir: PathBuf::from("/path/to/input"),
-                    fwd_index: PathBuf::from("/path/to/fwd"),
-                    inv_index: PathBuf::from("/path/to/inv"),
+                    input_dir: tmp.path().join("input"),
+                    fwd_index: tmp.path().join("fwd"),
+                    inv_index: tmp.path().join("inv"),
                     encodings: vec![Encoding::from("ef")],
                     scorers: default_scorers(),
                 },
                 Collection {
                     name: String::from("wapo2"),
                     kind: CollectionKind::WashingtonPost,
-                    input_dir: PathBuf::from("input"),
-                    fwd_index: PathBuf::from("fwd"),
-                    inv_index: PathBuf::from("inv"),
+                    input_dir: tmp.path().join("input"),
+                    fwd_index: tmp.path().join("fwd"),
+                    inv_index: tmp.path().join("inv"),
                     encodings: vec![Encoding::from("ef")],
                     scorers: default_scorers(),
                 },
@@ -1009,9 +1079,9 @@ topics:
                     encodings: vec![Encoding::from("ef")],
                     algorithms: vec![Algorithm::from("and")],
                     topics: vec![Topics::Simple {
-                        path: PathBuf::from("/path/to/simple/topics"),
+                        path: tmp.path().join("simple_topics"),
                     }],
-                    output: "/path/to/output".into(),
+                    output: tmp.path().join("output"),
                     scorer: default_scorer(),
                     compare_with: None,
                 },
@@ -1021,40 +1091,25 @@ topics:
                     encodings: vec![Encoding::from("ef")],
                     algorithms: vec![Algorithm::from("and")],
                     topics: vec![Topics::Simple {
-                        path: PathBuf::from("/path/to/simple/topics"),
+                        path: tmp.path().join("simple_topics"),
                     }],
                     output: "output".into(),
                     scorer: default_scorer(),
-                    compare_with: Some(PathBuf::from("compare")),
+                    compare_with: Some(tmp.path().join("compare")),
                 },
             ],
             source: Source::System,
             clean: true,
             ..RawConfig::default()
         };
-        let config = ResolvedPathsConfig::from(config);
-        assert_eq!(
-            config.collection(0).fwd_index,
-            PathBuf::from("/path/to/fwd")
-        );
-        assert_eq!(
-            config.collection(0).inv_index,
-            PathBuf::from("/path/to/inv")
-        );
-        assert_eq!(
-            config.collection(1).fwd_index,
-            PathBuf::from("/workdir/fwd")
-        );
-        assert_eq!(
-            config.collection(1).inv_index,
-            PathBuf::from("/workdir/inv")
-        );
-        assert_eq!(config.run(0).output, PathBuf::from("/path/to/output"));
-        assert_eq!(config.run(1).output, PathBuf::from("/workdir/output"));
-        assert_eq!(
-            config.run(1).compare_with,
-            Some(PathBuf::from("/workdir/compare"))
-        );
+        let config = ResolvedPathsConfig::from(config).unwrap();
+        assert_eq!(config.collection(0).fwd_index, tmp.path().join("fwd"));
+        assert_eq!(config.collection(0).inv_index, tmp.path().join("inv"));
+        assert_eq!(config.collection(1).fwd_index, tmp.path().join("fwd"));
+        assert_eq!(config.collection(1).inv_index, tmp.path().join("inv"));
+        assert_eq!(config.run(0).output, tmp.path().join("output"));
+        assert_eq!(config.run(1).output, tmp.path().join("output"));
+        assert_eq!(config.run(1).compare_with, Some(tmp.path().join("compare")));
         assert_eq!(config.source(), &Source::System);
         assert!(config.clean());
     }

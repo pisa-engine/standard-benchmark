@@ -237,7 +237,7 @@ pub fn collection<C: Config + Resolved>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tests::{mock_set_up, MockSetup};
+    use crate::tests::{mkfiles, mock_set_up, MockSetup};
     use crate::CommandDebug;
     use std::collections::HashSet;
     use std::fs;
@@ -454,17 +454,6 @@ mod tests {
             ]
             .join(" ")
         );
-        Ok(())
-    }
-
-    fn mkfiles(root: &Path, paths: &[&str]) -> Result<(), Error> {
-        for path in paths {
-            if path.ends_with('/') {
-                fs::create_dir(root.join(path))?;
-            } else {
-                File::create(root.join(path))?;
-            }
-        }
         Ok(())
     }
 
