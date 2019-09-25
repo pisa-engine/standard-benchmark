@@ -5,7 +5,7 @@ extern crate boolinator;
 extern crate failure;
 extern crate log;
 
-use crate::config::{resolve_files, BatchSizes, Collection, CollectionKind, Stage};
+use crate::config::{resolve_files, BatchSizes, Collection, CollectionKind, Stage, Threads};
 use crate::error::Error;
 use crate::executor::Executor;
 use crate::{ensure_parent_exists, CommandDebug, Config, Resolved};
@@ -70,6 +70,7 @@ fn parse_collection_cmd(
     fwd_index: &Path,
     format: &str,
     batch_size: usize,
+    threads: Option<usize>,
 ) -> Command {
     let mut cmd = executor.command("parse_collection");
     cmd.arg("-o")
@@ -78,6 +79,9 @@ fn parse_collection_cmd(
         .args(&["--stemmer", "porter2"])
         .args(&["--content-parser", "html"])
         .args(&["--batch-size", &batch_size.to_string()]);
+    if let Some(threads) = threads {
+        cmd.args(&["-j", &threads.to_string()]);
+    }
     cmd
 }
 
@@ -85,9 +89,17 @@ fn parsing_commands(
     executor: &Executor,
     collection: &Collection,
     batch_sizes: BatchSizes,
+    threads: Threads,
 ) -> Result<(Command, Command), Error> {
-    let parse_cmd =
-        |fmt: &str| parse_collection_cmd(&executor, &collection.fwd_index, fmt, batch_sizes.parse);
+    let parse_cmd = |fmt: &str| {
+        parse_collection_cmd(
+            &executor,
+            &collection.fwd_index,
+            fmt,
+            batch_sizes.parse,
+            threads.parse,
+        )
+    };
     match &collection.kind {
         CollectionKind::NewYorkTimes => {
             let input_files = resolve_files(collection.input_dir.join("*.plain"))?;
@@ -158,8 +170,12 @@ pub fn collection<C: Config + Resolved>(
         if config.enabled(Stage::Parse) {
             if config.enabled(Stage::ParseBatches) {
                 info!("[{}] [build] [parse] Parsing collection", name);
-                let (mut cat, mut parse) =
-                    parsing_commands(&executor, &collection, config.batch_sizes())?;
+                let (mut cat, mut parse) = parsing_commands(
+                    &executor,
+                    &collection,
+                    config.batch_sizes(),
+                    config.threads(),
+                )?;
                 let (reader, writer) = pipe().expect("Failed opening a pipe");
                 cat.log().stdout(writer).spawn()?;
                 drop(cat);
@@ -420,13 +436,21 @@ mod tests {
             encodings: vec![],
             scorers: crate::config::default_scorers(),
         };
-        let (cat, parse) = parsing_commands(&executor, &cconf, BatchSizes::default())?;
+        let (cat, parse) = parsing_commands(
+            &executor,
+            &cconf,
+            BatchSizes::default(),
+            Threads {
+                parse: Some(4),
+                invert: None,
+            },
+        )?;
         assert_eq!(cat.to_string(), format!("cat {}", data_file.display()));
         assert_eq!(
             parse.to_string(),
             [
                 "parse_collection -o fwd -f wapo --stemmer porter2",
-                "--content-parser html --batch-size 10000"
+                "--content-parser html --batch-size 10000 -j 4"
             ]
             .join(" ")
         );
@@ -537,7 +561,12 @@ mod tests {
             encodings: vec![],
             scorers: crate::config::default_scorers(),
         };
-        let (cat, parse) = parsing_commands(&executor, &collection, BatchSizes::default())?;
+        let (cat, parse) = parsing_commands(
+            &executor,
+            &collection,
+            BatchSizes::default(),
+            Threads::default(),
+        )?;
         let actual_files: HashSet<String> = cat
             .to_string()
             .split(' ')
@@ -587,7 +616,12 @@ mod tests {
             encodings: vec![],
             scorers: crate::config::default_scorers(),
         };
-        let (cat, parse) = parsing_commands(&executor, &collection, BatchSizes::default())?;
+        let (cat, parse) = parsing_commands(
+            &executor,
+            &collection,
+            BatchSizes::default(),
+            Threads::default(),
+        )?;
         assert_eq!(
             cat.to_string(),
             format!("cat {}", tmp.path().join("nyt.plain").display())
@@ -634,7 +668,12 @@ mod tests {
             encodings: vec![],
             scorers: crate::config::default_scorers(),
         };
-        let (cat, parse) = parsing_commands(&executor, &collection, BatchSizes::default())?;
+        let (cat, parse) = parsing_commands(
+            &executor,
+            &collection,
+            BatchSizes::default(),
+            Threads::default(),
+        )?;
         let actual_files: HashSet<String> = cat
             .to_string()
             .split(' ')
@@ -688,7 +727,12 @@ mod tests {
             encodings: vec![],
             scorers: crate::config::default_scorers(),
         };
-        let (cat, parse) = parsing_commands(&executor, &collection, BatchSizes::default())?;
+        let (cat, parse) = parsing_commands(
+            &executor,
+            &collection,
+            BatchSizes::default(),
+            Threads::default(),
+        )?;
         let actual_files: HashSet<String> = cat
             .to_string()
             .split(' ')

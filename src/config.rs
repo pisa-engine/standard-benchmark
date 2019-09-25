@@ -193,6 +193,29 @@ impl Default for BatchSizes {
     }
 }
 
+/// Thread counts for building index.
+///
+/// By default, all are equal to `None`, which will cause the tools to be called
+/// without `--threads` parameter, and the thread pool will be calculated by TBB.
+#[derive(Copy, Clone, Serialize, Deserialize, Debug, PartialEq)]
+pub struct Threads {
+    /// Thread count for `parse_collection`.
+    #[serde(default)]
+    pub parse: Option<usize>,
+    /// Thread count for `invert`.
+    #[serde(default)]
+    pub invert: Option<usize>,
+}
+
+impl Default for Threads {
+    fn default() -> Self {
+        Self {
+            parse: None,
+            invert: None,
+        }
+    }
+}
+
 /// Main config interface.
 pub trait Config {
     /// All relative paths will fall back on to this directory.
@@ -215,6 +238,8 @@ pub trait Config {
     fn clean(&self) -> bool;
     /// Batch size of a particular batched job.
     fn batch_sizes(&self) -> BatchSizes;
+    /// Thread counts of a particular batched job.
+    fn threads(&self) -> Threads;
 
     /// Retrieve a collection at a given index.
     ///
@@ -263,6 +288,9 @@ pub struct RawConfig {
     /// Batch sizes.
     #[serde(default)]
     pub batch_sizes: BatchSizes,
+    /// Thread counts.
+    #[serde(default)]
+    pub threads: Threads,
 }
 
 pub(crate) struct GitRepository<'a> {
@@ -366,6 +394,9 @@ impl Config for RawConfig {
     }
     fn batch_sizes(&self) -> BatchSizes {
         self.batch_sizes
+    }
+    fn threads(&self) -> Threads {
+        self.threads
     }
 
     fn executor(&self) -> Result<Executor, Error> {
@@ -474,6 +505,9 @@ impl Config for ResolvedPathsConfig {
     }
     fn batch_sizes(&self) -> BatchSizes {
         self.0.batch_sizes()
+    }
+    fn threads(&self) -> Threads {
+        self.0.threads()
     }
 }
 
@@ -1039,6 +1073,35 @@ invert: 9"
             BatchSizes {
                 parse: 10_000,
                 invert: 9
+            }
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_threads() -> Result<(), serde_yaml::Error> {
+        assert_eq!(
+            serde_yaml::from_str::<Threads>(
+                "parse: 10
+invert: 9"
+            )?,
+            Threads {
+                parse: Some(10),
+                invert: Some(9)
+            }
+        );
+        assert_eq!(
+            serde_yaml::from_str::<Threads>("parse: 10")?,
+            Threads {
+                parse: Some(10),
+                invert: None
+            }
+        );
+        assert_eq!(
+            serde_yaml::from_str::<Threads>("invert: 9")?,
+            Threads {
+                parse: None,
+                invert: Some(9)
             }
         );
         Ok(())
