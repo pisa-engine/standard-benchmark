@@ -360,7 +360,8 @@ mod test {
             workdir: PathBuf::from("workdir"),
             source: Source::Path(tmp.path().to_path_buf()),
             ..RawConfig::default()
-        });
+        })
+        .unwrap();
         let executor = config.executor().unwrap();
         let output = executor.command("program").output().unwrap();
         assert_eq!(std::str::from_utf8(&output.stdout).unwrap(), "ok\n");
@@ -393,7 +394,8 @@ mod test {
                 cmake_vars: vec![],
             },
             ..RawConfig::default()
-        });
+        })
+        .unwrap();
         assert_eq!(
             conf.executor().err().unwrap().to_string(),
             "git-clone failed"
@@ -440,7 +442,8 @@ mod test {
                 cmake_vars: vec![],
             },
             ..RawConfig::default()
-        });
+        })
+        .unwrap();
         assert_eq!(
             conf.executor(),
             Ok(Executor {
@@ -462,7 +465,8 @@ mod test {
                 cmake_vars: vec![],
             },
             ..RawConfig::default()
-        });
+        })
+        .unwrap();
         assert_eq!(
             conf.executor(),
             Ok(Executor {
@@ -482,7 +486,8 @@ mod test {
                 cmake_vars: vec![],
             },
             ..RawConfig::default()
-        });
+        })
+        .unwrap();
         conf.disable(Stage::Compile);
         assert_eq!(
             conf.executor().err(),

@@ -136,7 +136,7 @@ fn parse_config(args: Vec<String>, init_log: bool) -> Result<Option<ResolvedPath
     if clean {
         config.clean = true;
     }
-    Ok(Some(ResolvedPathsConfig::from(config)))
+    Ok(Some(ResolvedPathsConfig::from(config)?))
 }
 
 enum FinalStatus {
@@ -225,12 +225,25 @@ mod test {
     use std::fs;
     use tempdir::TempDir;
 
+    fn mkfiles(root: &std::path::Path, paths: &[&str]) -> Result<(), Error> {
+        for path in paths {
+            if path.ends_with('/') {
+                fs::create_dir(root.join(path))?;
+            } else {
+                std::fs::File::create(root.join(path))?;
+            }
+        }
+        Ok(())
+    }
+
     #[test]
     fn test_parse_config() -> Result<(), Error> {
         let tmp = TempDir::new("tmp").unwrap();
+        mkfiles(tmp.path(), &["coll"])?;
         let config_file = tmp.path().join("conf.yml");
-        let yml = "
-workdir: /tmp
+        let yml = format!(
+            "
+workdir: {0}
 source:
     git:
         branch: dev
@@ -238,18 +251,20 @@ source:
 collections:
     - name: wapo
       kind: washington-post
-      input_dir: coll
+      input_dir: {0}/coll
       fwd_index: fwd/wapo
       inv_index: inv/wapo
       encodings:
         - block_simdbp
     - name: wapo2
       kind: washington-post
-      input_dir: coll
+      input_dir: {0}/coll
       fwd_index: fwd/wapo
       inv_index: inv/wapo
       encodings:
-        - block_simdbp";
+        - block_simdbp",
+            tmp.path().display()
+        );
         fs::write(config_file.to_str().unwrap(), &yml).unwrap();
         let conf = parse_config(
             [

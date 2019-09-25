@@ -94,10 +94,22 @@ mod tests {
     use config::*;
     use std::collections::HashMap;
     use std::env::{set_var, var};
+    use std::fs::File;
     use std::fs::Permissions;
     use std::os::unix::fs::PermissionsExt;
     use std::path::{Path, PathBuf};
     use tempdir::TempDir;
+
+    pub(crate) fn mkfiles(root: &Path, paths: &[&str]) -> Result<(), Error> {
+        for path in paths {
+            if path.ends_with('/') {
+                fs::create_dir(root.join(path))?;
+            } else {
+                File::create(root.join(path))?;
+            }
+        }
+        Ok(())
+    }
 
     pub(crate) struct MockSetup {
         pub config: ResolvedPathsConfig,
@@ -122,6 +134,7 @@ mod tests {
 
     pub(crate) fn mock_set_up(tmp: &TempDir) -> MockSetup {
         use EchoMode::Redirect;
+        mkfiles(tmp.path(), &["coll/", "gov2/", "cw09b/", "qrels", "topics"]).unwrap();
         let collections = vec![
             Collection {
                 name: "wapo".to_string(),
@@ -206,7 +219,8 @@ mod tests {
             collections,
             runs,
             ..RawConfig::default()
-        });
+        })
+        .unwrap();
 
         let data_dir = tmp.path().join("coll").join("data");
         fs::create_dir_all(&data_dir).unwrap();
