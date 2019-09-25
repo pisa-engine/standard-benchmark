@@ -50,6 +50,7 @@ impl Executor {
         fwd_index: P1,
         inv_index: P2,
         term_count: usize,
+        batch_size: usize,
     ) -> Result<(), Error>
     where
         P1: AsRef<Path>,
@@ -68,6 +69,7 @@ impl Executor {
             .args(&["-i", fwd])
             .args(&["-o", inv])
             .args(&["--term-count", &term_count.to_string()])
+            .args(&["--batch-size", &batch_size.to_string()])
             .log()
             .status()
             .context("Failed to execute: invert")?
@@ -308,6 +310,7 @@ mod test {
                 &setup.config.collection(0).fwd_index,
                 &setup.config.collection(0).inv_index,
                 setup.term_count,
+                1000,
             )
         });
     }

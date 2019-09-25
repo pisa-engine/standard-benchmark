@@ -18,7 +18,7 @@ use std::path::Path;
 use std::process::Command;
 use std::{fmt, fs};
 
-mod config;
+pub mod config;
 pub use config::{
     Algorithm, CMakeVar, Collection, Config, Encoding, RawConfig, Resolved, ResolvedPathsConfig,
     Run, Scorer, Source, Stage,

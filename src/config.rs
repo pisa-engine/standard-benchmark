@@ -159,6 +159,40 @@ impl Into<String> for CMakeVar {
     }
 }
 
+/// Batch sizes for building index.
+///
+/// # Examples
+///
+/// By default, all are equal to 10,000.
+/// ```
+/// # use stdbench::config::BatchSizes;
+/// let batch_sizes = BatchSizes::default();
+/// assert_eq!(batch_sizes.parse, 10_000);
+/// assert_eq!(batch_sizes.invert, 10_000);
+/// ```
+#[derive(Copy, Clone, Serialize, Deserialize, Debug, PartialEq)]
+pub struct BatchSizes {
+    /// Batch size for `parse_collection`.
+    #[serde(default = "default_batch_size")]
+    pub parse: usize,
+    /// Batch size for `invert`.
+    #[serde(default = "default_batch_size")]
+    pub invert: usize,
+}
+
+fn default_batch_size() -> usize {
+    10_000
+}
+
+impl Default for BatchSizes {
+    fn default() -> Self {
+        Self {
+            parse: default_batch_size(),
+            invert: default_batch_size(),
+        }
+    }
+}
+
 /// Main config interface.
 pub trait Config {
     /// All relative paths will fall back on to this directory.
@@ -179,6 +213,8 @@ pub trait Config {
     fn use_scorer(&self) -> bool;
     /// Clean up before running: remove work dir.
     fn clean(&self) -> bool;
+    /// Batch size of a particular batched job.
+    fn batch_sizes(&self) -> BatchSizes;
 
     /// Retrieve a collection at a given index.
     ///
@@ -224,6 +260,9 @@ pub struct RawConfig {
     /// Clean up before running: remove work dir.
     #[serde(default)]
     pub clean: bool,
+    /// Batch sizes.
+    #[serde(default)]
+    pub batch_sizes: BatchSizes,
 }
 
 pub(crate) struct GitRepository<'a> {
@@ -324,6 +363,9 @@ impl Config for RawConfig {
     }
     fn clean(&self) -> bool {
         self.clean
+    }
+    fn batch_sizes(&self) -> BatchSizes {
+        self.batch_sizes
     }
 
     fn executor(&self) -> Result<Executor, Error> {
@@ -429,6 +471,9 @@ impl Config for ResolvedPathsConfig {
     }
     fn executor(&self) -> Result<Executor, Error> {
         self.0.executor()
+    }
+    fn batch_sizes(&self) -> BatchSizes {
+        self.0.batch_sizes()
     }
 }
 
@@ -968,5 +1013,34 @@ topics:
         );
         assert_eq!(config.source(), &Source::System);
         assert!(config.clean());
+    }
+
+    #[test]
+    fn test_parse_batch_sizes() -> Result<(), serde_yaml::Error> {
+        assert_eq!(
+            serde_yaml::from_str::<BatchSizes>(
+                "parse: 10
+invert: 9"
+            )?,
+            BatchSizes {
+                parse: 10,
+                invert: 9
+            }
+        );
+        assert_eq!(
+            serde_yaml::from_str::<BatchSizes>("parse: 10")?,
+            BatchSizes {
+                parse: 10,
+                invert: 10_000
+            }
+        );
+        assert_eq!(
+            serde_yaml::from_str::<BatchSizes>("invert: 9")?,
+            BatchSizes {
+                parse: 10_000,
+                invert: 9
+            }
+        );
+        Ok(())
     }
 }
