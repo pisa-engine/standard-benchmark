@@ -10,7 +10,11 @@ use cranky::ResultRecord;
 use failure::ResultExt;
 use itertools::iproduct;
 use serde::{Deserialize, Serialize};
-use std::{fs, path::PathBuf, process::Command};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    process::Command,
+};
 
 #[cfg_attr(tarpaulin, skip)]
 fn queries_path(topics: &Topics, executor: &Executor) -> Result<String, Error> {
@@ -75,6 +79,23 @@ impl BenchmarkResults {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Diff(pub PathBuf, pub PathBuf);
 
+fn format_output_path(
+    base: &Path,
+    algorithm: &Algorithm,
+    encoding: &Encoding,
+    topics_file_idx: usize,
+    suffix: &str,
+) -> PathBuf {
+    PathBuf::from(format!(
+        "{}.{}.{}.{}.{}",
+        base.display(),
+        algorithm,
+        encoding,
+        topics_file_idx,
+        suffix
+    ))
+}
+
 /// Process a run (e.g., single precision evaluation or benchmark).
 pub fn process_run(
     executor: &Executor,
@@ -88,7 +109,6 @@ pub fn process_run(
         .iter()
         .map(|t| queries_path(t, executor))
         .collect();
-    let base_path = &run.output.display();
     match &run.kind {
         RunKind::Evaluate { qrels } => {
             let mut diffs: Vec<Diff> = Vec::new();
@@ -97,8 +117,10 @@ pub fn process_run(
             {
                 let results =
                     executor.evaluate_queries(&collection, encoding, algorithm, queries, scorer)?;
-                let results_path = format!("{}.{}.{}.results", base_path, algorithm, tid);
-                let trec_eval_path = format!("{}.{}.{}.trec_eval", base_path, algorithm, tid);
+                let results_path =
+                    format_output_path(&run.output, algorithm, encoding, tid, "results");
+                let trec_eval_path =
+                    format_output_path(&run.output, algorithm, encoding, tid, "trec_eval");
                 let mut results: Vec<ResultRecord> =
                     cranky::read_records(std::io::Cursor::new(results))?;
                 results.sort_by(|lhs, rhs| {
@@ -124,14 +146,12 @@ pub fn process_run(
                 fs::write(&trec_eval_path, &eval_result)?;
                 if let Some(compare_with) = &run.compare_with {
                     let compare_path =
-                        format!("{}.{}.{}.trec_eval", compare_with.display(), algorithm, tid);
-                    if fs::read_to_string(&compare_path).with_context(|_| compare_path.clone())?
+                        format_output_path(compare_with, algorithm, encoding, tid, "trec_eval");
+                    if fs::read_to_string(&compare_path)
+                        .with_context(|_| compare_path.to_string_lossy().to_string())?
                         != eval_result
                     {
-                        diffs.push(Diff(
-                            PathBuf::from(compare_path),
-                            PathBuf::from(trec_eval_path),
-                        ));
+                        diffs.push(Diff(compare_path, trec_eval_path));
                     }
                 }
             }
@@ -148,19 +168,20 @@ pub fn process_run(
             {
                 let results =
                     executor.benchmark(&collection, encoding, algorithm, &queries, scorer)?;
-                let path = format!("{}.{}.{}.bench", base_path, algorithm, tid);
+                let path = format_output_path(&run.output, algorithm, encoding, tid, "bench");
                 fs::write(&path, &results)?;
                 if let Some(compare_with) = &run.compare_with {
                     let results: BenchmarkResults = serde_json::from_str(&results)
                         .context("Unable to parse benchmark results")?;
                     let compare_path =
-                        format!("{}.{}.{}.bench", compare_with.display(), algorithm, tid);
+                        format_output_path(compare_with, algorithm, encoding, tid, "bench");
                     let gold_standard: BenchmarkResults = serde_json::from_reader(
-                        fs::File::open(&compare_path).with_context(|_| compare_path.clone())?,
+                        fs::File::open(&compare_path)
+                            .with_context(|_| compare_path.to_string_lossy().to_string())?,
                     )
                     .context("Unable to parse benchmark gold standard")?;
                     if results.regressed(&gold_standard, 0.01)? {
-                        diffs.push(Diff(PathBuf::from(compare_path), PathBuf::from(path)));
+                        diffs.push(Diff(compare_path, path));
                     }
                 }
             }
@@ -179,6 +200,7 @@ mod tests {
     use crate::tests::{mock_program, mock_set_up, EchoMode, EchoOutput, MockSetup};
     use crate::Config;
     use crate::Error;
+    use std::path;
     use tempdir::TempDir;
 
     #[test]
@@ -250,41 +272,40 @@ mod tests {
                 tmp.path().join("topics").display(),
             )
         );
-        // TODO: Revisit when #5 addressed
-        // let trec_eval = programs.get("trec_eval").unwrap().to_str().unwrap();
-        // let qrels = tmp
-        //     .path()
-        //     .join("qrels")
-        //     .into_os_string()
-        //     .into_string()
-        //     .unwrap();
-        // let run = config.run(1).output.to_str().unwrap().to_string();
-        // assert_eq!(
-        //     EchoOutput::from(
-        //         path::PathBuf::from(format!(
-        //             "{}.wand.trec_eval",
-        //             config.runs[1].output.display()
-        //         ))
-        //         .as_path()
-        //     ),
-        //     EchoOutput::from(format!(
-        //         "{} -q -a {} {}.wand.results",
-        //         &trec_eval, &qrels, &run
-        //     )),
-        // );
-        // assert_eq!(
-        //     EchoOutput::from(
-        //         path::PathBuf::from(format!(
-        //             "{}.maxscore.trec_eval",
-        //             config.runs[1].output.display()
-        //         ))
-        //         .as_path()
-        //     ),
-        //     EchoOutput::from(format!(
-        //         "{} -q -a {} {}.maxscore.results",
-        //         &trec_eval, &qrels, &run
-        //     )),
-        // );
+        let trec_eval = programs.get("trec_eval").unwrap().to_str().unwrap();
+        let qrels = tmp
+            .path()
+            .join("qrels")
+            .into_os_string()
+            .into_string()
+            .unwrap();
+        let run = config.run(1).output.to_str().unwrap().to_string();
+        assert_eq!(
+            EchoOutput::from(
+                path::PathBuf::from(format!(
+                    "{}.wand.block_simdbp.0.trec_eval",
+                    config.run(1).output.display()
+                ))
+                .as_path()
+            ),
+            EchoOutput::from(format!(
+                "{} -q -a {} {}.wand.block_simdbp.0.results",
+                &trec_eval, &qrels, &run
+            )),
+        );
+        assert_eq!(
+            EchoOutput::from(
+                path::PathBuf::from(format!(
+                    "{}.maxscore.block_simdbp.0.trec_eval",
+                    config.run(1).output.display()
+                ))
+                .as_path()
+            ),
+            EchoOutput::from(format!(
+                "{} -q -a {} {}.maxscore.block_simdbp.0.results",
+                &trec_eval, &qrels, &run
+            )),
+        );
     }
 
     #[test]

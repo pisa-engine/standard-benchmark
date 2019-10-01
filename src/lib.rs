@@ -297,7 +297,8 @@ mod tests {
     impl From<&Path> for EchoOutput {
         fn from(path: &Path) -> Self {
             use std::io::{BufRead, BufReader};
-            let file = fs::File::open(path).expect("Cannot open echo output");
+            let file = fs::File::open(path)
+                .unwrap_or_else(|_| panic!("Cannot open echo output: {}", path.display()));
             let lines: Result<Vec<String>, std::io::Error> =
                 BufReader::new(&file).lines().collect();
             Self(lines.unwrap())
