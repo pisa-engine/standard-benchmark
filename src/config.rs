@@ -471,6 +471,23 @@ impl PathExists for Path {
     }
 }
 
+pub(crate) fn format_output_path(
+    base: &Path,
+    algorithm: &Algorithm,
+    encoding: &Encoding,
+    topics_file_idx: usize,
+    suffix: &str,
+) -> PathBuf {
+    PathBuf::from(format!(
+        "{}.{}.{}.{}.{}",
+        base.display(),
+        algorithm,
+        encoding,
+        topics_file_idx,
+        suffix
+    ))
+}
+
 impl ResolvedPathsConfig {
     /// Resolves all relative paths with respect to the work dir.
     pub fn from(config: RawConfig) -> Result<Self, Error> {
@@ -520,21 +537,13 @@ impl ResolvedPathsConfig {
                 topics_path.exists_or("Topics not found")?;
             }
             if let Some(compare_with) = &run.compare_with {
-                for (algorithm, topics_idx) in iproduct!(&run.algorithms, 0..run.topics.len()) {
-                    let bench_path = format!(
-                        "{}.{}.{}.bench",
-                        compare_with.display(),
-                        algorithm,
-                        topics_idx
-                    );
-                    PathBuf::from(bench_path).exists_or("Missing baseline")?;
-                    let trec_eval_path = format!(
-                        "{}.{}.{}.trec_eval",
-                        compare_with.display(),
-                        algorithm,
-                        topics_idx
-                    );
-                    PathBuf::from(trec_eval_path).exists_or("Missing baseline")?;
+                for (algorithm, encoding, topics_idx) in
+                    iproduct!(&run.algorithms, &run.encodings, 0..run.topics.len())
+                {
+                    format_output_path(compare_with, algorithm, encoding, topics_idx, "bench")
+                        .exists_or("Missing baseline")?;
+                    format_output_path(compare_with, algorithm, encoding, topics_idx, "trec_eval")
+                        .exists_or("Missing baseline")?;
                 }
             }
         }
@@ -1045,8 +1054,8 @@ topics:
             &[
                 "input",
                 "simple_topics",
-                "compare.and.0.bench",
-                "compare.and.0.trec_eval",
+                "compare.and.ef.0.bench",
+                "compare.and.ef.0.trec_eval",
             ],
         )
         .unwrap();

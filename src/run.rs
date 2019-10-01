@@ -1,7 +1,7 @@
 //! All things related to experimental runs, including efficiency and precision runs.
 
 use crate::{
-    config::{Collection, Run, RunKind, Topics},
+    config::{format_output_path, Collection, Run, RunKind, Topics},
     error::Error,
     executor::Executor,
     Algorithm, CommandDebug, Encoding,
@@ -10,11 +10,7 @@ use cranky::ResultRecord;
 use failure::ResultExt;
 use itertools::iproduct;
 use serde::{Deserialize, Serialize};
-use std::{
-    fs,
-    path::{Path, PathBuf},
-    process::Command,
-};
+use std::{fs, path::PathBuf, process::Command};
 
 #[cfg_attr(tarpaulin, skip)]
 fn queries_path(topics: &Topics, executor: &Executor) -> Result<String, Error> {
@@ -78,23 +74,6 @@ impl BenchmarkResults {
 /// Two paths to files that are supposed to be equal but are not.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Diff(pub PathBuf, pub PathBuf);
-
-fn format_output_path(
-    base: &Path,
-    algorithm: &Algorithm,
-    encoding: &Encoding,
-    topics_file_idx: usize,
-    suffix: &str,
-) -> PathBuf {
-    PathBuf::from(format!(
-        "{}.{}.{}.{}.{}",
-        base.display(),
-        algorithm,
-        encoding,
-        topics_file_idx,
-        suffix
-    ))
-}
 
 /// Process a run (e.g., single precision evaluation or benchmark).
 pub fn process_run(
