@@ -540,10 +540,24 @@ impl ResolvedPathsConfig {
                 for (algorithm, encoding, topics_idx) in
                     iproduct!(&run.algorithms, &run.encodings, 0..run.topics.len())
                 {
-                    format_output_path(compare_with, algorithm, encoding, topics_idx, "bench")
-                        .exists_or("Missing baseline")?;
-                    format_output_path(compare_with, algorithm, encoding, topics_idx, "trec_eval")
-                        .exists_or("Missing baseline")?;
+                    match run.kind {
+                        RunKind::Evaluate { .. } => format_output_path(
+                            compare_with,
+                            algorithm,
+                            encoding,
+                            topics_idx,
+                            "trec_eval",
+                        )
+                        .exists_or("Missing baseline")?,
+                        RunKind::Benchmark => format_output_path(
+                            compare_with,
+                            algorithm,
+                            encoding,
+                            topics_idx,
+                            "bench",
+                        )
+                        .exists_or("Missing baseline")?,
+                    }
                 }
             }
         }
