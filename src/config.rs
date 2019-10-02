@@ -1067,6 +1067,7 @@ topics:
             tmp.path(),
             &[
                 "input",
+                "qrels",
                 "simple_topics",
                 "compare.and.ef.0.bench",
                 "compare.and.ef.0.trec_eval",
@@ -1111,6 +1112,20 @@ topics:
                 Run {
                     collection: String::from("wapo"),
                     kind: RunKind::Benchmark,
+                    encodings: vec![Encoding::from("ef")],
+                    algorithms: vec![Algorithm::from("and")],
+                    topics: vec![Topics::Simple {
+                        path: tmp.path().join("simple_topics"),
+                    }],
+                    output: "output".into(),
+                    scorer: default_scorer(),
+                    compare_with: Some(tmp.path().join("compare")),
+                },
+                Run {
+                    collection: String::from("wapo"),
+                    kind: RunKind::Evaluate {
+                        qrels: tmp.path().join("qrels"),
+                    },
                     encodings: vec![Encoding::from("ef")],
                     algorithms: vec![Algorithm::from("and")],
                     topics: vec![Topics::Simple {
