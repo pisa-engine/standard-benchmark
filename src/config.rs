@@ -417,8 +417,13 @@ impl Config for RawConfig {
                 branch,
                 url,
                 cmake_vars,
+                local_path,
             } => {
-                let dir = self.workdir.join("pisa");
+                let dir = if local_path.is_absolute() {
+                    local_path.to_path_buf()
+                } else {
+                    self.workdir.join(&local_path)
+                };
                 let repo = if dir.exists() {
                     GitRepository::open(&dir)
                 } else {
@@ -611,6 +616,10 @@ fn default_cmake_vars() -> Vec<CMakeVar> {
     }]
 }
 
+fn default_local_path() -> PathBuf {
+    PathBuf::from("pisa")
+}
+
 /// Source of PISA executables.
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 #[serde(rename_all = "lowercase")]
@@ -624,6 +633,10 @@ pub enum Source {
         /// CMake flags, e.g., `-DPISA_ENABLE_TESTING=OFF`.
         #[serde(default = "default_cmake_vars")]
         cmake_vars: Vec<CMakeVar>,
+        /// Local path to pull the code to other than `workdir/pisa`.
+        /// Partial paths will be rooted at the working directory.
+        #[serde(default = "default_local_path")]
+        local_path: PathBuf,
     },
     /// Executables in a given directory.
     Path(PathBuf),
@@ -899,7 +912,8 @@ mod test {
                     name: "CMAKE_BUILD_TYPE".to_string(),
                     typedef: None,
                     value: "Release".to_string(),
-                }]
+                }],
+                local_path: PathBuf::from("pisa")
             }
         );
 
@@ -910,7 +924,8 @@ mod test {
   cmake_vars:
     - CMAKE_BUILD_TYPE:BOOL=Release
     - PISA_ENABLE_TESTING=OFF
-    - PISA_ENABLE_BENCHMARKING:BOOL=False",
+    - PISA_ENABLE_BENCHMARKING:BOOL=False
+  local_path: pisa-master",
         )?;
         assert_eq!(
             source,
@@ -933,7 +948,8 @@ mod test {
                         typedef: Some("BOOL".to_string()),
                         value: "False".to_string(),
                     },
-                ]
+                ],
+                local_path: PathBuf::from("pisa-master")
             }
         );
 
