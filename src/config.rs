@@ -3,8 +3,7 @@
 
 use crate::{CommandDebug, Error, Executor};
 use boolinator::Boolinator;
-use failure::format_err;
-use failure::ResultExt;
+use failure::{bail, format_err, ResultExt};
 use itertools::iproduct;
 use log::warn;
 use serde::{Deserialize, Serialize};
@@ -13,7 +12,7 @@ use std::convert::{Into, TryFrom};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::str::FromStr;
-use std::{fmt, fs};
+use std::{fmt, fs, mem};
 use strum_macros::{Display, EnumIter, EnumString};
 
 fn process(args: &'static str) -> Command {
@@ -266,6 +265,15 @@ pub trait Config {
 pub trait Resolved {}
 
 /// Main config.
+///
+/// # Global-Level Run Parameters
+///
+/// It is possible to define a global list of encodings and algorithms
+/// to be used in all runs.
+/// These values, if exist, act like defaults, which are overridden once
+/// they appear in the run configuration.
+/// On the other hand, the config validation step will fail if a value is absent
+/// from both global and run configuration.
 #[derive(Serialize, Deserialize, Debug, Default)]
 pub struct RawConfig {
     /// All relative paths will fall back on to this directory.
@@ -293,6 +301,12 @@ pub struct RawConfig {
     /// Thread counts.
     #[serde(default)]
     pub threads: Threads,
+    #[serde(default)]
+    /// A list of posting list encodings.
+    pub encodings: Option<Vec<Encoding>>,
+    #[serde(default)]
+    /// A list of query processing algorithms.
+    pub algorithms: Option<Vec<Algorithm>>,
 }
 
 pub(crate) struct GitRepository<'a> {
@@ -494,28 +508,62 @@ pub(crate) fn format_output_path(
 }
 
 impl ResolvedPathsConfig {
+    fn resolve_run_with<'a>(
+        workdir: &'a Path,
+        algorithms: &'a Option<Vec<Algorithm>>,
+        encodings: &'a Option<Vec<Encoding>>,
+    ) -> impl 'a + FnMut(Run) -> Result<Run, failure::Error> {
+        move |mut r: Run| {
+            r.output = resolve_path(workdir, r.output);
+            r.compare_with = r.compare_with.map(|p| resolve_path(&workdir, p));
+            if r.algorithms.is_empty() {
+                if let Some(algorithms) = algorithms {
+                    r.algorithms.extend(algorithms.iter().cloned());
+                } else {
+                    bail!("Missing algorithms: {:?}", &r);
+                }
+            }
+            if r.encodings.is_empty() {
+                if let Some(encodings) = encodings {
+                    r.encodings.extend(encodings.iter().cloned());
+                } else {
+                    bail!("Missing encodings: {:?}", &r);
+                }
+            }
+            Ok(r)
+        }
+    }
+
+    fn resolve_collection_with<'a>(
+        workdir: &'a Path,
+        encodings: &'a Option<Vec<Encoding>>,
+    ) -> impl 'a + FnMut(Collection) -> Result<Collection, failure::Error> {
+        move |mut c: Collection| {
+            c.fwd_index = resolve_path(&workdir, c.fwd_index);
+            c.inv_index = resolve_path(&workdir, c.inv_index);
+            if c.encodings.is_empty() {
+                if let Some(encodings) = encodings {
+                    c.encodings.extend(encodings.iter().cloned());
+                } else {
+                    bail!("Missing encodings: {:?}", &c);
+                }
+            }
+            Ok(c)
+        }
+    }
+
     /// Resolves all relative paths with respect to the work dir.
-    pub fn from(config: RawConfig) -> Result<Self, Error> {
+    pub fn from(mut config: RawConfig) -> Result<Self, Error> {
+        let algorithms = mem::replace(&mut config.algorithms, None);
+        let encodings = mem::replace(&mut config.encodings, None);
         let workdir = config.workdir().to_path_buf();
+        let resolve_run = Self::resolve_run_with(&workdir, &algorithms, &encodings);
+        let runs: Result<_, _> = config.runs.into_iter().map(resolve_run).collect();
+        let resolve_coll = Self::resolve_collection_with(&workdir, &encodings);
+        let collections: Result<_, _> = config.collections.into_iter().map(resolve_coll).collect();
         let config = Self(RawConfig {
-            collections: config
-                .collections
-                .into_iter()
-                .map(|mut c| {
-                    c.fwd_index = resolve_path(&workdir, c.fwd_index);
-                    c.inv_index = resolve_path(&workdir, c.inv_index);
-                    c
-                })
-                .collect(),
-            runs: config
-                .runs
-                .into_iter()
-                .map(|mut r| {
-                    r.output = resolve_path(&workdir, r.output);
-                    r.compare_with = r.compare_with.map(|p| resolve_path(&workdir, p));
-                    r
-                })
-                .collect(),
+            collections: collections?,
+            runs: runs?,
             ..config
         });
         config.verify()?;
@@ -673,7 +721,7 @@ pub enum CollectionKind {
 }
 
 /// Algorithm name.
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
 pub struct Algorithm(String);
 
 impl From<&str> for Algorithm {
@@ -695,7 +743,7 @@ impl AsRef<str> for Algorithm {
 }
 
 /// Posting list encoding name.
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
 pub struct Encoding(pub String);
 
 impl From<&str> for Encoding {
@@ -796,6 +844,7 @@ pub struct Collection {
     /// Basename for inverted index.
     pub inv_index: PathBuf,
     /// List of encodings with which to compress the inverted index.
+    #[serde(default)]
     pub encodings: Vec<Encoding>,
     /// List of scorers for which to build WAND data.
     #[serde(default = "default_scorers")]
@@ -827,8 +876,10 @@ pub struct Run {
     /// Collection format.
     pub kind: RunKind,
     /// A list of posting list encodings.
+    #[serde(default)]
     pub encodings: Vec<Encoding>,
     /// A list of query processing algorithms.
+    #[serde(default)]
     pub algorithms: Vec<Algorithm>,
     /// A basename for output files.
     pub output: PathBuf,
@@ -846,6 +897,7 @@ pub struct Run {
 mod test {
     use super::*;
     use crate::tests::mkfiles;
+    use rstest::{fixture, rstest};
     use serde_yaml;
     use tempdir::TempDir;
 
@@ -1076,9 +1128,26 @@ topics:
         Ok(())
     }
 
-    #[test]
-    fn test_resolve_paths() {
-        let tmp = TempDir::new("resolve_paths").unwrap();
+    #[fixture]
+    fn tmp() -> TempDir {
+        TempDir::new("").expect("Unable to create a temporary directory")
+    }
+
+    #[allow(dead_code)]
+    struct ResolveFixture {
+        tmp: TempDir,
+        workdir: PathBuf,
+        input: PathBuf,
+        qrels: PathBuf,
+        topics: PathBuf,
+        bench: PathBuf,
+        trec: PathBuf,
+        config: RawConfig,
+    }
+
+    #[fixture]
+    #[allow(clippy::needless_pass_by_value)]
+    fn resolve_fixture(tmp: TempDir) -> ResolveFixture {
         mkfiles(
             tmp.path(),
             &[
@@ -1089,25 +1158,26 @@ topics:
                 "compare.and.ef.0.trec_eval",
             ],
         )
-        .unwrap();
+        .expect("Unable to create temporary files");
+        let workdir = tmp.path().to_path_buf();
         let config = RawConfig {
-            workdir: tmp.path().to_path_buf(),
+            workdir: workdir.clone(),
             collections: vec![
                 Collection {
                     name: String::from("wapo"),
                     kind: CollectionKind::WashingtonPost,
-                    input_dir: tmp.path().join("input"),
-                    fwd_index: tmp.path().join("fwd"),
-                    inv_index: tmp.path().join("inv"),
+                    input_dir: workdir.join("input"),
+                    fwd_index: workdir.join("fwd"),
+                    inv_index: workdir.join("inv"),
                     encodings: vec![Encoding::from("ef")],
                     scorers: default_scorers(),
                 },
                 Collection {
                     name: String::from("wapo2"),
                     kind: CollectionKind::WashingtonPost,
-                    input_dir: tmp.path().join("input"),
-                    fwd_index: tmp.path().join("fwd"),
-                    inv_index: tmp.path().join("inv"),
+                    input_dir: workdir.join("input"),
+                    fwd_index: workdir.join("fwd"),
+                    inv_index: workdir.join("inv"),
                     encodings: vec![Encoding::from("ef")],
                     scorers: default_scorers(),
                 },
@@ -1119,9 +1189,9 @@ topics:
                     encodings: vec![Encoding::from("ef")],
                     algorithms: vec![Algorithm::from("and")],
                     topics: vec![Topics::Simple {
-                        path: tmp.path().join("simple_topics"),
+                        path: workdir.join("simple_topics"),
                     }],
-                    output: tmp.path().join("output"),
+                    output: workdir.join("output"),
                     scorer: default_scorer(),
                     compare_with: None,
                 },
@@ -1131,21 +1201,21 @@ topics:
                     encodings: vec![Encoding::from("ef")],
                     algorithms: vec![Algorithm::from("and")],
                     topics: vec![Topics::Simple {
-                        path: tmp.path().join("simple_topics"),
+                        path: workdir.join("simple_topics"),
                     }],
                     output: "output".into(),
                     scorer: default_scorer(),
-                    compare_with: Some(tmp.path().join("compare")),
+                    compare_with: Some(workdir.join("compare")),
                 },
                 Run {
                     collection: String::from("wapo"),
                     kind: RunKind::Evaluate {
-                        qrels: tmp.path().join("qrels"),
+                        qrels: workdir.join("qrels"),
                     },
                     encodings: vec![Encoding::from("ef")],
                     algorithms: vec![Algorithm::from("and")],
                     topics: vec![Topics::Simple {
-                        path: tmp.path().join("simple_topics"),
+                        path: workdir.join("simple_topics"),
                     }],
                     output: "output".into(),
                     scorer: default_scorer(),
@@ -1156,16 +1226,95 @@ topics:
             clean: true,
             ..RawConfig::default()
         };
-        let config = ResolvedPathsConfig::from(config).unwrap();
-        assert_eq!(config.collection(0).fwd_index, tmp.path().join("fwd"));
-        assert_eq!(config.collection(0).inv_index, tmp.path().join("inv"));
-        assert_eq!(config.collection(1).fwd_index, tmp.path().join("fwd"));
-        assert_eq!(config.collection(1).inv_index, tmp.path().join("inv"));
-        assert_eq!(config.run(0).output, tmp.path().join("output"));
-        assert_eq!(config.run(1).output, tmp.path().join("output"));
-        assert_eq!(config.run(1).compare_with, Some(tmp.path().join("compare")));
+        ResolveFixture {
+            input: tmp.path().join("input"),
+            qrels: tmp.path().join("qrels"),
+            topics: tmp.path().join("simple_topics"),
+            bench: tmp.path().join("compare.and.ef.0.bench"),
+            trec: tmp.path().join("compare.and.ef.0.trec_eval"),
+            config,
+            tmp,
+            workdir,
+        }
+    }
+
+    #[rstest]
+    #[allow(clippy::needless_pass_by_value)]
+    fn test_resolve_paths(resolve_fixture: ResolveFixture) {
+        let workdir = resolve_fixture.workdir;
+        let config = ResolvedPathsConfig::from(resolve_fixture.config).unwrap();
+        assert_eq!(config.collection(0).fwd_index, workdir.join("fwd"));
+        assert_eq!(config.collection(0).inv_index, workdir.join("inv"));
+        assert_eq!(config.collection(1).fwd_index, workdir.join("fwd"));
+        assert_eq!(config.collection(1).inv_index, workdir.join("inv"));
+        assert_eq!(config.run(0).output, workdir.join("output"));
+        assert_eq!(config.run(1).output, workdir.join("output"));
+        assert_eq!(config.run(1).compare_with, Some(workdir.join("compare")));
         assert_eq!(config.source(), &Source::System);
         assert!(config.clean());
+    }
+
+    #[rstest]
+    #[allow(clippy::needless_pass_by_value)]
+    fn test_resolve_paths_global_algorithms_and_encodings(mut resolve_fixture: ResolveFixture) {
+        for run in &mut resolve_fixture.config.runs {
+            run.encodings.clear();
+        }
+        for coll in &mut resolve_fixture.config.collections {
+            coll.encodings.clear();
+        }
+        resolve_fixture.config.encodings = Some(vec![Encoding::from("ef")]);
+        resolve_fixture.config.algorithms = Some(vec![Algorithm::from("and")]);
+        let workdir = resolve_fixture.workdir;
+        let config = ResolvedPathsConfig::from(resolve_fixture.config).unwrap();
+        assert_eq!(config.collection(0).fwd_index, workdir.join("fwd"));
+        assert_eq!(config.collection(0).inv_index, workdir.join("inv"));
+        assert_eq!(config.collection(1).fwd_index, workdir.join("fwd"));
+        assert_eq!(config.collection(1).inv_index, workdir.join("inv"));
+        assert_eq!(config.run(0).output, workdir.join("output"));
+        assert_eq!(config.run(1).output, workdir.join("output"));
+        assert_eq!(config.run(1).compare_with, Some(workdir.join("compare")));
+        assert_eq!(config.source(), &Source::System);
+        assert!(config.clean());
+    }
+
+    #[rstest]
+    #[allow(clippy::needless_pass_by_value)]
+    fn test_resolve_paths_missing_algorithms(mut resolve_fixture: ResolveFixture) {
+        for run in &mut resolve_fixture.config.runs {
+            run.algorithms.clear();
+        }
+        assert!(ResolvedPathsConfig::from(resolve_fixture.config)
+            .err()
+            .unwrap()
+            .to_string()
+            .starts_with("Missing algorithms"));
+    }
+
+    #[rstest]
+    #[allow(clippy::needless_pass_by_value)]
+    fn test_resolve_paths_missing_encodings(mut resolve_fixture: ResolveFixture) {
+        for run in &mut resolve_fixture.config.runs {
+            run.encodings.clear();
+        }
+        assert!(ResolvedPathsConfig::from(resolve_fixture.config)
+            .err()
+            .unwrap()
+            .to_string()
+            .starts_with("Missing encodings"));
+    }
+
+    #[rstest]
+    #[allow(clippy::needless_pass_by_value)]
+    fn test_resolve_paths_missing_encodings_in_coll(mut resolve_fixture: ResolveFixture) {
+        for coll in &mut resolve_fixture.config.collections {
+            coll.encodings.clear();
+        }
+        assert!(ResolvedPathsConfig::from(resolve_fixture.config)
+            .err()
+            .unwrap()
+            .to_string()
+            .starts_with("Missing encodings"));
     }
 
     #[test]
