@@ -4,6 +4,7 @@ use crate::{Algorithm, Collection, CommandDebug, Encoding, Error, Scorer};
 use boolinator::Boolinator;
 use failure::ResultExt;
 use std::path::{Path, PathBuf};
+
 use std::process::Command;
 
 /// Executes PISA tools.
@@ -392,6 +393,7 @@ mod test {
                 branch: "master".into(),
                 url: "http://examp.le".into(),
                 cmake_vars: vec![],
+                local_path: "pisa".into(),
             },
             ..RawConfig::default()
         })
@@ -440,6 +442,7 @@ mod test {
                 url: origin_dir.to_string_lossy().to_string(),
                 branch: "master".into(),
                 cmake_vars: vec![],
+                local_path: "pisa".into(),
             },
             ..RawConfig::default()
         })
@@ -463,6 +466,7 @@ mod test {
                 url,
                 branch: "master".into(),
                 cmake_vars: vec![],
+                local_path: "pisa".into(),
             },
             ..RawConfig::default()
         })
@@ -484,6 +488,7 @@ mod test {
                 url: origin_dir.to_string_lossy().to_string(),
                 branch: "master".into(),
                 cmake_vars: vec![],
+                local_path: "pisa".into(),
             },
             ..RawConfig::default()
         })
