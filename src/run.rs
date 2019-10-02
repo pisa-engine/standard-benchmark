@@ -198,16 +198,16 @@ mod tests {
             std::fs::read_to_string(outputs.get("evaluate_queries").unwrap()).unwrap(),
             format!(
                 "{0} -t block_simdbp -i {2}.block_simdbp -w {2}.wand -a wand \
-                 -q {3} --terms {1}.termmap --documents {1}.docmap \
+                 -q {3} --terms {1}.termlex --documents {1}.doclex \
                  --stemmer porter2 -k 1000 --scorer bm25\n\
                  {0} -t block_qmx -i {2}.block_qmx -w {2}.wand -a wand \
-                 -q {3} --terms {1}.termmap --documents {1}.docmap \
+                 -q {3} --terms {1}.termlex --documents {1}.doclex \
                  --stemmer porter2 -k 1000 --scorer bm25\n\
                  {0} -t block_simdbp -i {2}.block_simdbp -w {2}.wand -a maxscore \
-                 -q {3} --terms {1}.termmap --documents {1}.docmap \
+                 -q {3} --terms {1}.termlex --documents {1}.doclex \
                  --stemmer porter2 -k 1000 --scorer bm25\n\
                  {0} -t block_qmx -i {2}.block_qmx -w {2}.wand -a maxscore \
-                 -q {3} --terms {1}.termmap --documents {1}.docmap \
+                 -q {3} --terms {1}.termlex --documents {1}.doclex \
                  --stemmer porter2 -k 1000 --scorer bm25\n",
                 programs.get("evaluate_queries").unwrap().display(),
                 tmp.path().join("fwd").display(),
@@ -240,10 +240,10 @@ mod tests {
             std::fs::read_to_string(outputs.get("evaluate_queries").unwrap()).unwrap(),
             format!(
                 "{0} -t block_simdbp -i {2}.block_simdbp -w {2}.wand -a wand \
-                 -q {3} --terms {1}.termmap --documents {1}.docmap \
+                 -q {3} --terms {1}.termlex --documents {1}.doclex \
                  --stemmer porter2 -k 1000 --scorer bm25\n\
                  {0} -t block_simdbp -i {2}.block_simdbp -w {2}.wand -a maxscore \
-                 -q {3} --terms {1}.termmap --documents {1}.docmap \
+                 -q {3} --terms {1}.termlex --documents {1}.doclex \
                  --stemmer porter2 -k 1000 --scorer bm25\n",
                 programs.get("evaluate_queries").unwrap().display(),
                 tmp.path().join("fwd").display(),
@@ -302,10 +302,10 @@ mod tests {
         let actual = EchoOutput::from(outputs.get("queries").unwrap().as_path());
         let expected = EchoOutput::from(format!(
             "{0} -t block_simdbp -i {2}.block_simdbp -w {2}.wand -a wand \
-             -q {3} --terms {1}.termmap --stemmer porter2 -k 1000 \
+             -q {3} --terms {1}.termlex --stemmer porter2 -k 1000 \
              --scorer bm25\n\
              {0} -t block_simdbp -i {2}.block_simdbp -w {2}.wand -a maxscore \
-             -q {3} --terms {1}.termmap --stemmer porter2 -k 1000 \
+             -q {3} --terms {1}.termlex --stemmer porter2 -k 1000 \
              --scorer bm25",
             programs.get("queries").unwrap().display(),
             tmp.path().join("fwd").display(),

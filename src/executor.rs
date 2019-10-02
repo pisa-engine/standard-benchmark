@@ -57,18 +57,12 @@ impl Executor {
         P1: AsRef<Path>,
         P2: AsRef<Path>,
     {
-        let fwd = fwd_index
-            .as_ref()
-            .to_str()
-            .ok_or("Failed to parse forward index path")?;
-        let inv = inv_index
-            .as_ref()
-            .to_str()
-            .ok_or("Failed to parse inverted index path")?;
         let mut invert = self.command("invert");
         invert
-            .args(&["-i", fwd])
-            .args(&["-o", inv])
+            .arg("-i")
+            .arg(fwd_index.as_ref())
+            .arg("-o")
+            .arg(inv_index.as_ref())
             .args(&["--term-count", &term_count.to_string()])
             .args(&["--batch-size", &batch_size.to_string()])
             .log()
@@ -80,20 +74,24 @@ impl Executor {
     }
 
     /// Runs `create_freq_index` command.
-    pub fn compress<P>(&self, inv_index: P, encoding: &Encoding) -> Result<(), Error>
+    pub fn compress<P1, P2>(
+        &self,
+        inv_index: P1,
+        enc_index: P2,
+        encoding: &Encoding,
+    ) -> Result<(), Error>
     where
-        P: AsRef<Path>,
+        P1: AsRef<Path>,
+        P2: AsRef<Path>,
     {
         let Encoding(encoding) = encoding;
-        let inv = inv_index
-            .as_ref()
-            .to_str()
-            .ok_or("Failed to parse inverted index path")?;
         let mut compress = self.command("create_freq_index");
         compress
             .args(&["-t", encoding])
-            .args(&["-c", inv])
-            .args(&["-o", &format!("{}.{}", inv, encoding)])
+            .arg("-c")
+            .arg(inv_index.as_ref())
+            .arg("-o")
+            .arg(enc_index.as_ref())
             .arg("--check")
             .log()
             .status()
@@ -104,16 +102,22 @@ impl Executor {
     }
 
     /// Runs `create_freq_index` command.
-    pub fn create_wand_data<P>(&self, inv_index: P, scorer: Option<&Scorer>) -> Result<(), Error>
+    pub fn create_wand_data<P1, P2>(
+        &self,
+        inv_index: P1,
+        wand_data: P2,
+        scorer: Option<&Scorer>,
+    ) -> Result<(), Error>
     where
-        P: AsRef<Path>,
+        P1: AsRef<Path>,
+        P2: AsRef<Path>,
     {
-        let inv = inv_index
-            .as_ref()
-            .to_str()
-            .ok_or("Failed to parse inverted index path")?;
         let mut command = self.command("create_wand_data");
-        command.args(&["-c", inv, "-o", &format!("{}.wand", inv)]);
+        command
+            .arg("-c")
+            .arg(inv_index.as_ref())
+            .arg("-o")
+            .arg(wand_data.as_ref());
         if let Some(scorer) = scorer {
             command.args(&["--scorer", scorer.as_ref()]);
         }
@@ -132,16 +136,10 @@ impl Executor {
         P1: AsRef<Path>,
         P2: AsRef<Path>,
     {
-        let input = input
-            .as_ref()
-            .to_str()
-            .ok_or("Failed to parse input path")?;
-        let output = output
-            .as_ref()
-            .to_str()
-            .ok_or("Failed to parse output path")?;
         self.command("lexicon")
-            .args(&["build", input, output])
+            .arg("build")
+            .arg(input.as_ref())
+            .arg(output.as_ref())
             .log()
             .status()
             .context("Failed to execute lexicon build")?
@@ -156,16 +154,11 @@ impl Executor {
         P1: AsRef<Path>,
         P2: AsRef<Path>,
     {
-        let input = input
-            .as_ref()
-            .to_str()
-            .ok_or("Failed to parse input path")?;
-        let output = output
-            .as_ref()
-            .to_str()
-            .ok_or("Failed to parse output path")?;
         self.command("extract_topics")
-            .args(&["-i", input, "-o", output])
+            .arg("-i")
+            .arg(input.as_ref())
+            .arg("-o")
+            .arg(output.as_ref())
             .log()
             .status()
             .context("Failed to execute extract_topics")?
@@ -186,23 +179,19 @@ impl Executor {
     where
         S: AsRef<str>,
     {
-        let inv = collection
-            .inv_index
-            .to_str()
-            .ok_or("Failed to parse inverted index path")?;
-        let fwd = collection
-            .fwd_index
-            .to_str()
-            .ok_or("Failed to parse forward index path")?;
         let mut command = self.command("evaluate_queries");
         command
             .args(&["-t", encoding.as_ref()])
-            .args(&["-i", &format!("{}.{}", inv, encoding)])
-            .args(&["-w", &format!("{}.wand", inv)])
+            .arg("-i")
+            .arg(collection.enc_index(encoding))
+            .arg("-w")
+            .arg(collection.wand())
             .args(&["-a", algorithm.as_ref()])
             .args(&["-q", queries.as_ref()])
-            .args(&["--terms", &format!("{}.termmap", fwd)])
-            .args(&["--documents", &format!("{}.docmap", fwd)])
+            .arg("--terms")
+            .arg(collection.term_lexicon())
+            .arg("--documents")
+            .arg(collection.document_lexicon())
             .args(&["--stemmer", "porter2"])
             .args(&["-k", "1000"]);
         if let Some(scorer) = scorer {
@@ -231,22 +220,17 @@ impl Executor {
     where
         S: AsRef<str>,
     {
-        let inv = collection
-            .inv_index
-            .to_str()
-            .ok_or("Failed to parse inverted index path")?;
-        let fwd = collection
-            .fwd_index
-            .to_str()
-            .ok_or("Failed to parse forward index path")?;
         let mut command = self.command("queries");
         command
             .args(&["-t", encoding.as_ref()])
-            .args(&["-i", &format!("{}.{}", inv, encoding)])
-            .args(&["-w", &format!("{}.wand", inv)])
+            .arg("-i")
+            .arg(collection.enc_index(encoding))
+            .arg("-w")
+            .arg(collection.wand())
             .args(&["-a", &algorithm.to_string()])
             .args(&["-q", queries.as_ref()])
-            .args(&["--terms", &format!("{}.termmap", fwd)])
+            .arg("--terms")
+            .arg(collection.term_lexicon())
             .args(&["--stemmer", "porter2"])
             .args(&["-k", "1000"]);
         if let Some(scorer) = scorer {
@@ -324,7 +308,11 @@ mod test {
             "Failed to compress index",
             |setup: &MockSetup| {
                 setup.executor.compress(
-                    &setup.config.collection(0).fwd_index,
+                    &setup.config.collection(0).inv_index,
+                    &setup
+                        .config
+                        .collection(0)
+                        .enc_index(&Encoding::from("block_simdbp")),
                     &Encoding::from("block_simdbp"),
                 )
             },
@@ -340,6 +328,7 @@ mod test {
             |setup: &MockSetup| {
                 setup.executor.create_wand_data(
                     &setup.config.collection(0).inv_index,
+                    &setup.config.collection(0).wand(),
                     Some(&Scorer::from("bm25")),
                 )
             },
@@ -541,16 +530,16 @@ mod test {
             std::fs::read_to_string(outputs.get("evaluate_queries").unwrap()).unwrap(),
             format!(
                 "{0} -t block_simdbp -i {1}.block_simdbp -w {1}.wand -a wand -q {3}.title \
-                 --terms {2}.termmap --documents {2}.docmap --stemmer porter2 -k 1000 \
+                 --terms {2}.termlex --documents {2}.doclex --stemmer porter2 -k 1000 \
                  --scorer bm25\n\
                  {0} -t block_qmx -i {1}.block_qmx -w {1}.wand -a wand -q {3}.title \
-                 --terms {2}.termmap --documents {2}.docmap --stemmer porter2 -k 1000 \
+                 --terms {2}.termlex --documents {2}.doclex --stemmer porter2 -k 1000 \
                  --scorer bm25\n\
                  {0} -t block_simdbp -i {1}.block_simdbp -w {1}.wand -a maxscore -q {3}.title \
-                 --terms {2}.termmap --documents {2}.docmap --stemmer porter2 -k 1000 \
+                 --terms {2}.termlex --documents {2}.doclex --stemmer porter2 -k 1000 \
                  --scorer bm25\n\
                  {0} -t block_qmx -i {1}.block_qmx -w {1}.wand -a maxscore -q {3}.title \
-                 --terms {2}.termmap --documents {2}.docmap --stemmer porter2 -k 1000 \
+                 --terms {2}.termlex --documents {2}.doclex --stemmer porter2 -k 1000 \
                  --scorer bm25\n",
                 programs.get("evaluate_queries").unwrap().display(),
                 collection.inv_index.display(),
