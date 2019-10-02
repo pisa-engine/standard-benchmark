@@ -534,11 +534,21 @@ impl ResolvedPathsConfig {
         }
     }
 
-    fn resolve_collection_with<'a>(workdir: &'a Path) -> impl 'a + FnMut(Collection) -> Collection {
+    fn resolve_collection_with<'a>(
+        workdir: &'a Path,
+        encodings: &'a Option<Vec<Encoding>>,
+    ) -> impl 'a + FnMut(Collection) -> Result<Collection, failure::Error> {
         move |mut c: Collection| {
             c.fwd_index = resolve_path(&workdir, c.fwd_index);
             c.inv_index = resolve_path(&workdir, c.inv_index);
-            c
+            if c.encodings.is_empty() {
+                if let Some(encodings) = encodings {
+                    c.encodings.extend(encodings.iter().cloned());
+                } else {
+                    bail!("Missing encodings: {:?}", &c);
+                }
+            }
+            Ok(c)
         }
     }
 
@@ -549,10 +559,10 @@ impl ResolvedPathsConfig {
         let workdir = config.workdir().to_path_buf();
         let resolve_run = Self::resolve_run_with(&workdir, &algorithms, &encodings);
         let runs: Result<_, _> = config.runs.into_iter().map(resolve_run).collect();
-        let resolve_coll = Self::resolve_collection_with(&workdir);
-        let collections = config.collections.into_iter().map(resolve_coll).collect();
+        let resolve_coll = Self::resolve_collection_with(&workdir, &encodings);
+        let collections: Result<_, _> = config.collections.into_iter().map(resolve_coll).collect();
         let config = Self(RawConfig {
-            collections,
+            collections: collections?,
             runs: runs?,
             ..config
         });
@@ -834,6 +844,7 @@ pub struct Collection {
     /// Basename for inverted index.
     pub inv_index: PathBuf,
     /// List of encodings with which to compress the inverted index.
+    #[serde(default)]
     pub encodings: Vec<Encoding>,
     /// List of scorers for which to build WAND data.
     #[serde(default = "default_scorers")]
@@ -1249,6 +1260,9 @@ topics:
         for run in &mut resolve_fixture.config.runs {
             run.encodings.clear();
         }
+        for coll in &mut resolve_fixture.config.collections {
+            coll.encodings.clear();
+        }
         resolve_fixture.config.encodings = Some(vec![Encoding::from("ef")]);
         resolve_fixture.config.algorithms = Some(vec![Algorithm::from("and")]);
         let workdir = resolve_fixture.workdir;
@@ -1282,6 +1296,19 @@ topics:
     fn test_resolve_paths_missing_encodings(mut resolve_fixture: ResolveFixture) {
         for run in &mut resolve_fixture.config.runs {
             run.encodings.clear();
+        }
+        assert!(ResolvedPathsConfig::from(resolve_fixture.config)
+            .err()
+            .unwrap()
+            .to_string()
+            .starts_with("Missing encodings"));
+    }
+
+    #[rstest]
+    #[allow(clippy::needless_pass_by_value)]
+    fn test_resolve_paths_missing_encodings_in_coll(mut resolve_fixture: ResolveFixture) {
+        for coll in &mut resolve_fixture.config.collections {
+            coll.encodings.clear();
         }
         assert!(ResolvedPathsConfig::from(resolve_fixture.config)
             .err()
