@@ -139,7 +139,7 @@ mod tests {
             Collection {
                 name: "wapo".to_string(),
                 kind: CollectionKind::WashingtonPost,
-                input_dir: tmp.path().join("coll"),
+                input_dir: Some(tmp.path().join("coll")),
                 fwd_index: tmp.path().join("fwd"),
                 inv_index: tmp.path().join("inv"),
                 encodings: vec!["block_simdbp".into(), "block_qmx".into()],
@@ -148,7 +148,7 @@ mod tests {
             Collection {
                 name: "gov2".to_string(),
                 kind: CollectionKind::TrecWeb,
-                input_dir: tmp.path().join("gov2"),
+                input_dir: Some(tmp.path().join("gov2")),
                 fwd_index: tmp.path().join("gov2/fwd"),
                 inv_index: tmp.path().join("gov2/inv"),
                 encodings: vec!["block_simdbp".into(), "block_qmx".into()],
@@ -157,7 +157,7 @@ mod tests {
             Collection {
                 name: "cw09b".to_string(),
                 kind: CollectionKind::Warc,
-                input_dir: tmp.path().join("cw09b"),
+                input_dir: Some(tmp.path().join("cw09b")),
                 fwd_index: tmp.path().join("cw09b/fwd"),
                 inv_index: tmp.path().join("cw09b/inv"),
                 encodings: vec!["block_simdbp".into(), "block_qmx".into()],

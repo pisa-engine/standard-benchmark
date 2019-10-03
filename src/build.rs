@@ -91,6 +91,10 @@ fn parsing_commands(
     batch_sizes: BatchSizes,
     threads: Threads,
 ) -> Result<(Command, Command), Error> {
+    let input_dir = collection
+        .input_dir
+        .as_ref()
+        .expect("Input directory undefined");
     let parse_cmd = |fmt: &str| {
         parse_collection_cmd(
             &executor,
@@ -102,7 +106,7 @@ fn parsing_commands(
     };
     match &collection.kind {
         CollectionKind::NewYorkTimes => {
-            let input_files = resolve_files(collection.input_dir.join("*.plain"))?;
+            let input_files = resolve_files(input_dir.join("*.plain"))?;
             let mut cat = Command::new("cat");
             cat.args(&input_files);
             let parse = parse_cmd("plaintext");
@@ -110,7 +114,7 @@ fn parsing_commands(
         }
         CollectionKind::Robust => {
             let find_output = Command::new("find")
-                .arg(&collection.input_dir)
+                .arg(input_dir)
                 .args(&["-type", "f"])
                 .args(&["-name", "*.*z"])
                 .arg("(")
@@ -129,21 +133,21 @@ fn parsing_commands(
             Ok((cat, parse))
         }
         CollectionKind::Warc => {
-            let input_files = resolve_files(collection.input_dir.join("*/*.gz"))?;
+            let input_files = resolve_files(input_dir.join("*/*.gz"))?;
             let mut cat = Command::new("zcat");
             cat.args(&input_files);
             let parse = parse_cmd("warc");
             Ok((cat, parse))
         }
         CollectionKind::TrecWeb => {
-            let input_files = resolve_files(collection.input_dir.join("*/*.gz"))?;
+            let input_files = resolve_files(input_dir.join("*/*.gz"))?;
             let mut cat = Command::new("zcat");
             cat.args(&input_files);
             let parse = parse_cmd("trecweb");
             Ok((cat, parse))
         }
         CollectionKind::WashingtonPost => {
-            let input_files = resolve_files(collection.input_dir.join("data/*.jl"))?;
+            let input_files = resolve_files(input_dir.join("data/*.jl"))?;
             let mut cat = Command::new("cat");
             cat.args(&input_files);
             let parse = parse_cmd("wapo");
@@ -185,9 +189,8 @@ pub fn collection<C: Config + Resolved>(
                 warn!("[{}] [build] [parse] Only merging", name);
                 merge_parsed_batches(executor, &collection)?;
             }
-            let fwd = collection.fwd_index.display();
-            executor.build_lexicon(format!("{}.terms", fwd), format!("{}.termmap", fwd))?;
-            executor.build_lexicon(format!("{}.documents", fwd), format!("{}.docmap", fwd))?;
+            executor.build_lexicon(collection.terms(), collection.term_lexicon())?;
+            executor.build_lexicon(collection.documents(), collection.document_lexicon())?;
         } else {
             warn!("[{}] [build] [parse] Suppressed", name);
         }
@@ -205,7 +208,11 @@ pub fn collection<C: Config + Resolved>(
         if config.enabled(Stage::Compress) {
             info!("[{}] [build] [compress] Compressing index", name);
             for encoding in &collection.encodings {
-                executor.compress(&collection.inv_index, encoding)?;
+                executor.compress(
+                    &collection.inv_index,
+                    collection.enc_index(encoding),
+                    encoding,
+                )?;
             }
         } else {
             warn!("[{}] [build] [compress] Suppressed", name);
@@ -218,6 +225,7 @@ pub fn collection<C: Config + Resolved>(
                 );
                 executor.create_wand_data(
                     &collection.inv_index,
+                    collection.wand(),
                     if config.use_scorer() {
                         Some(&scorer)
                     } else {
@@ -349,8 +357,8 @@ mod tests {
         assert_eq!(
             std::fs::read_to_string(outputs.get("lexicon").unwrap()).unwrap(),
             format!(
-                "{0} build {1}.terms {1}.termmap\n\
-                 {0} build {1}.documents {1}.docmap\n",
+                "{0} build {1}.terms {1}.termlex\n\
+                 {0} build {1}.documents {1}.doclex\n",
                 programs.get("lexicon").unwrap().display(),
                 tmp.path().join("fwd").display(),
             )
@@ -430,7 +438,7 @@ mod tests {
         let cconf = Collection {
             name: "wapo".to_string(),
             kind: CollectionKind::WashingtonPost,
-            input_dir: tmp.path().to_path_buf(),
+            input_dir: Some(tmp.path().to_path_buf()),
             fwd_index: PathBuf::from("fwd"),
             inv_index: PathBuf::from("inv"),
             encodings: vec![],
@@ -544,7 +552,7 @@ mod tests {
         let collection = Collection {
             name: "robust".to_string(),
             kind: CollectionKind::Robust,
-            input_dir: tmp.path().to_path_buf(),
+            input_dir: Some(tmp.path().to_path_buf()),
             fwd_index: PathBuf::from("fwd"),
             inv_index: PathBuf::from("inv"),
             encodings: vec![],
@@ -599,7 +607,7 @@ mod tests {
         let collection = Collection {
             name: "robust".to_string(),
             kind: CollectionKind::NewYorkTimes,
-            input_dir: tmp.path().to_path_buf(),
+            input_dir: Some(tmp.path().to_path_buf()),
             fwd_index: PathBuf::from("fwd"),
             inv_index: PathBuf::from("inv"),
             encodings: vec![],
@@ -651,7 +659,7 @@ mod tests {
         let collection = Collection {
             name: "robust".to_string(),
             kind: CollectionKind::Warc,
-            input_dir: tmp.path().to_path_buf(),
+            input_dir: Some(tmp.path().to_path_buf()),
             fwd_index: PathBuf::from("fwd"),
             inv_index: PathBuf::from("inv"),
             encodings: vec![],
@@ -710,7 +718,7 @@ mod tests {
         let collection = Collection {
             name: "robust".to_string(),
             kind: CollectionKind::TrecWeb,
-            input_dir: tmp.path().to_path_buf(),
+            input_dir: Some(tmp.path().to_path_buf()),
             fwd_index: PathBuf::from("fwd"),
             inv_index: PathBuf::from("inv"),
             encodings: vec![],

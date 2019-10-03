@@ -573,7 +573,10 @@ impl ResolvedPathsConfig {
     fn verify(&self) -> Result<(), Error> {
         let mut collection_names: HashSet<&str> = HashSet::new();
         for collection in self.collections() {
-            collection.input_dir.exists_or("Collection dir not found")?;
+            collection.input_dir.as_ref().map_or_else(
+                || collection.verify_index_exists(),
+                |p| p.exists_or("Collection dir not found"),
+            )?;
             collection_names.insert(&collection.name);
         }
         for run in self.runs() {
@@ -838,7 +841,8 @@ pub struct Collection {
     /// Type of collection format.
     pub kind: CollectionKind,
     /// Directory where the collection resides.
-    pub input_dir: PathBuf,
+    #[serde(default)]
+    pub input_dir: Option<PathBuf>,
     /// Basename for forward index.
     pub fwd_index: PathBuf,
     /// Basename for inverted index.
@@ -849,6 +853,45 @@ pub struct Collection {
     /// List of scorers for which to build WAND data.
     #[serde(default = "default_scorers")]
     pub scorers: Vec<Scorer>,
+}
+
+impl Collection {
+    fn with_appended<P: AsRef<Path>>(path: P, extension: &str) -> PathBuf {
+        let mut file_name = path.as_ref().file_name().unwrap().to_os_string();
+        file_name.push(extension);
+        path.as_ref().with_file_name(file_name)
+    }
+    pub(crate) fn documents(&self) -> PathBuf {
+        Self::with_appended(&self.fwd_index, ".documents")
+    }
+    pub(crate) fn terms(&self) -> PathBuf {
+        Self::with_appended(&self.fwd_index, ".terms")
+    }
+    pub(crate) fn document_lexicon(&self) -> PathBuf {
+        Self::with_appended(&self.fwd_index, ".doclex")
+    }
+    pub(crate) fn term_lexicon(&self) -> PathBuf {
+        Self::with_appended(&self.fwd_index, ".termlex")
+    }
+    pub(crate) fn wand(&self) -> PathBuf {
+        Self::with_appended(&self.inv_index, ".wand")
+    }
+    pub(crate) fn enc_index(&self, encoding: &Encoding) -> PathBuf {
+        Self::with_appended(&self.inv_index, &format!(".{}", encoding))
+    }
+    fn verify_index_exists(&self) -> Result<(), Error> {
+        self.document_lexicon()
+            .exists()
+            .ok_or("Document lexicon missing")?;
+        self.term_lexicon().exists().ok_or("Term lexicon missing")?;
+        self.wand().exists().ok_or("WAND data missing")?;
+        for encoding in &self.encodings {
+            self.enc_index(encoding)
+                .exists()
+                .ok_or_else(|| format!("Missing index encoded with: {}", encoding))?;
+        }
+        Ok(())
+    }
 }
 
 /// Type of experiment.
@@ -1072,7 +1115,7 @@ encodings:
             Collection {
                 name: String::from("wapo"),
                 kind: CollectionKind::WashingtonPost,
-                input_dir: PathBuf::from("/path/to/input"),
+                input_dir: Some(PathBuf::from("/path/to/input")),
                 fwd_index: PathBuf::from("/path/to/fwd"),
                 inv_index: PathBuf::from("/path/to/inv"),
                 encodings: vec![Encoding::from("block_simdbp"), Encoding::from("ef")],
@@ -1166,7 +1209,7 @@ topics:
                 Collection {
                     name: String::from("wapo"),
                     kind: CollectionKind::WashingtonPost,
-                    input_dir: workdir.join("input"),
+                    input_dir: Some(workdir.join("input")),
                     fwd_index: workdir.join("fwd"),
                     inv_index: workdir.join("inv"),
                     encodings: vec![Encoding::from("ef")],
@@ -1175,7 +1218,7 @@ topics:
                 Collection {
                     name: String::from("wapo2"),
                     kind: CollectionKind::WashingtonPost,
-                    input_dir: workdir.join("input"),
+                    input_dir: Some(workdir.join("input")),
                     fwd_index: workdir.join("fwd"),
                     inv_index: workdir.join("inv"),
                     encodings: vec![Encoding::from("ef")],
@@ -1315,6 +1358,33 @@ topics:
             .unwrap()
             .to_string()
             .starts_with("Missing encodings"));
+    }
+
+    #[rstest]
+    #[allow(clippy::needless_pass_by_value)]
+    fn test_resolve_paths_external_index(mut resolve_fixture: ResolveFixture) {
+        let index_dir = resolve_fixture.workdir.join("external");
+        fs::create_dir(&index_dir).unwrap();
+        mkfiles(
+            &index_dir,
+            &["fwd.doclex", "fwd.termlex", "inv", "inv.wand", "inv.ef"],
+        )
+        .expect("Unable to create temporary files");
+        mem::replace(
+            &mut resolve_fixture.config.collections[0],
+            Collection {
+                name: String::from("wapo"),
+                kind: CollectionKind::WashingtonPost,
+                input_dir: None,
+                fwd_index: index_dir.join("fwd"),
+                inv_index: index_dir.join("inv"),
+                encodings: vec![Encoding::from("ef")],
+                scorers: default_scorers(),
+            },
+        );
+        let config = ResolvedPathsConfig::from(resolve_fixture.config).unwrap();
+        assert_eq!(config.collection(0).fwd_index, index_dir.join("fwd"));
+        assert_eq!(config.collection(0).inv_index, index_dir.join("inv"));
     }
 
     #[test]
