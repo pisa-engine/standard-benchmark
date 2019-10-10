@@ -66,8 +66,11 @@ impl BenchmarkResults {
             || Self::regressed_value(self.quantile_50, other.quantile_50, margin)
             || Self::regressed_value(self.quantile_90, other.quantile_90, margin)
             || Self::regressed_value(self.quantile_95, other.quantile_95, margin)
-        {}
-        Ok(false)
+        {
+            Ok(true)
+        } else {
+            Ok(false)
+        }
     }
 }
 
