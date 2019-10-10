@@ -71,7 +71,7 @@ impl fmt::Display for PerformanceRegression {
             .chain(std::iter::once(("q95", self.quantile_95)))
         {
             if let Some((time, baseline)) = regression {
-                writeln!(f, "{}: {} --> {}", prop, time, baseline)?;
+                writeln!(f, "{}: {} --> {}", prop, baseline, time)?;
             }
         }
         write!(f, "")
