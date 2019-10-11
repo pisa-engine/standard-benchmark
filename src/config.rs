@@ -1,7 +1,7 @@
 //! This module contains all the config definitions that are deserialized
 //! from a YAML configuration file.
 
-use crate::{CommandDebug, Error, Executor};
+use crate::{CommandDebug, Error, Executor, RegressionMargin};
 use boolinator::Boolinator;
 use failure::{bail, format_err, ResultExt};
 use itertools::iproduct;
@@ -68,6 +68,9 @@ pub enum Stage {
     /// Running experiments.
     #[strum(serialize = "run")]
     Run,
+    /// Compare with a gold standard (if such is defined).
+    #[strum(serialize = "compare")]
+    Compare,
 }
 
 #[cfg_attr(tarpaulin, skip)]
@@ -241,6 +244,8 @@ pub trait Config {
     fn batch_sizes(&self) -> BatchSizes;
     /// Thread counts of a particular batched job.
     fn threads(&self) -> Threads;
+    /// Performance regression margin.
+    fn margin(&self) -> RegressionMargin;
 
     /// Retrieve a collection at a given index.
     ///
@@ -307,6 +312,9 @@ pub struct RawConfig {
     #[serde(default)]
     /// A list of query processing algorithms.
     pub algorithms: Option<Vec<Algorithm>>,
+    #[serde(default)]
+    /// Performance regression margin.
+    pub margin: RegressionMargin,
 }
 
 pub(crate) struct GitRepository<'a> {
@@ -423,6 +431,9 @@ impl Config for RawConfig {
     fn threads(&self) -> Threads {
         self.threads
     }
+    fn margin(&self) -> RegressionMargin {
+        self.margin
+    }
 
     fn executor(&self) -> Result<Executor, Error> {
         match &self.source {
@@ -487,6 +498,18 @@ impl PathExists for Path {
         self.exists()
             .ok_or_else(|| format_err!("{}: {}", message, self.display()))?;
         Ok(())
+    }
+}
+
+pub(crate) fn output_path_formatter<'a>(
+    //base: &Path,
+    algorithm: &'a Algorithm,
+    encoding: &'a Encoding,
+    topics_file_idx: usize,
+    suffix: &'a str,
+) -> impl Fn(&'a Path) -> PathBuf + 'a {
+    move |path: &'a Path| -> PathBuf {
+        format_output_path(path, algorithm, encoding, topics_file_idx, suffix)
     }
 }
 
@@ -654,6 +677,9 @@ impl Config for ResolvedPathsConfig {
     }
     fn threads(&self) -> Threads {
         self.0.threads()
+    }
+    fn margin(&self) -> RegressionMargin {
+        self.0.margin()
     }
 }
 

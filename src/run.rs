@@ -1,16 +1,17 @@
 //! All things related to experimental runs, including efficiency and precision runs.
 
 use crate::{
-    config::{format_output_path, Collection, Run, RunKind, Topics},
+    config::{format_output_path, output_path_formatter, Collection, Run, RunKind, Topics},
     error::Error,
     executor::Executor,
-    Algorithm, CommandDebug, Encoding,
+    Algorithm, CommandDebug, Encoding, RegressionMargin,
 };
 use cranky::ResultRecord;
 use failure::ResultExt;
 use itertools::iproduct;
 use serde::{Deserialize, Serialize};
-use std::{fs, path::PathBuf, process::Command};
+use std::path::{Path, PathBuf};
+use std::{fmt, fs, process::Command};
 
 #[cfg_attr(tarpaulin, skip)]
 fn queries_path(topics: &Topics, executor: &Executor) -> Result<String, Error> {
@@ -28,10 +29,9 @@ fn queries_path(topics: &Topics, executor: &Executor) -> Result<String, Error> {
 pub enum RunStatus {
     /// Everything OK.
     Success,
-    /// Failed due to missing collection in the configuration.
-    CollectionUndefined(String),
     /// Regression with respect to the gold standard was detected.
-    Regression(Vec<Diff>),
+    /// It holds the count of regressions for this run.
+    Regression(usize),
 }
 
 /// Benchmark results as obtained from `queries` in JSON format.
@@ -51,23 +51,65 @@ struct BenchmarkResults {
     quantile_95: f32,
 }
 
-impl BenchmarkResults {
-    fn regressed_value(value: f32, gold: f32, margin: f32) -> bool {
-        value > gold * (1.0 + margin)
+#[derive(Serialize, Deserialize)]
+struct PerformanceRegression {
+    #[serde(rename = "avg")]
+    avg_time: Option<(f32, f32)>,
+    #[serde(rename = "q50")]
+    quantile_50: Option<(f32, f32)>,
+    #[serde(rename = "q90")]
+    quantile_90: Option<(f32, f32)>,
+    #[serde(rename = "q95")]
+    quantile_95: Option<(f32, f32)>,
+}
+
+impl fmt::Display for PerformanceRegression {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for (prop, regression) in std::iter::once(("avg", self.avg_time))
+            .chain(std::iter::once(("q50", self.quantile_50)))
+            .chain(std::iter::once(("q90", self.quantile_90)))
+            .chain(std::iter::once(("q95", self.quantile_95)))
+        {
+            if let Some((time, baseline)) = regression {
+                writeln!(f, "{}: {} --> {}", prop, baseline, time)?;
+            }
+        }
+        write!(f, "")
     }
-    fn regressed(&self, other: &Self, margin: f32) -> Result<bool, Error> {
-        if self.kind != other.kind {
+}
+
+impl BenchmarkResults {
+    fn calc_diff(value: f32, gold: f32, margin: RegressionMargin) -> Option<(f32, f32)> {
+        if value - gold * (1.0 + margin.0) > 0.0 {
+            Some((value, gold))
+        } else {
+            None
+        }
+    }
+    fn regression(
+        &self,
+        gold: &Self,
+        margin: RegressionMargin,
+    ) -> Result<Option<PerformanceRegression>, Error> {
+        if self.kind != gold.kind {
             return Err(Error::from("Encodings do not match"));
         }
-        if self.algorithm != other.algorithm {
+        if self.algorithm != gold.algorithm {
             return Err(Error::from("Algorithms do not match"));
         }
-        if Self::regressed_value(self.avg_time, other.avg_time, margin)
-            || Self::regressed_value(self.quantile_50, other.quantile_50, margin)
-            || Self::regressed_value(self.quantile_90, other.quantile_90, margin)
-            || Self::regressed_value(self.quantile_95, other.quantile_95, margin)
-        {}
-        Ok(false)
+        let avg = Self::calc_diff(self.avg_time, gold.avg_time, margin);
+        let q50 = Self::calc_diff(self.quantile_50, gold.quantile_50, margin);
+        let q90 = Self::calc_diff(self.quantile_90, gold.quantile_90, margin);
+        let q95 = Self::calc_diff(self.quantile_95, gold.quantile_95, margin);
+        Ok(match (avg, q50, q90, q95) {
+            (None, None, None, None) => None,
+            (avg_time, quantile_50, quantile_90, quantile_95) => Some(PerformanceRegression {
+                avg_time,
+                quantile_50,
+                quantile_90,
+                quantile_95,
+            }),
+        })
     }
 }
 
@@ -81,7 +123,7 @@ pub fn process_run(
     run: &Run,
     collection: &Collection,
     use_scorer: bool,
-) -> Result<RunStatus, Error> {
+) -> Result<(), Error> {
     let scorer = if use_scorer { Some(&run.scorer) } else { None };
     let queries: Result<Vec<_>, Error> = run
         .topics
@@ -90,7 +132,6 @@ pub fn process_run(
         .collect();
     match &run.kind {
         RunKind::Evaluate { qrels } => {
-            let mut diffs: Vec<Diff> = Vec::new();
             for (algorithm, encoding, (tid, queries)) in
                 iproduct!(&run.algorithms, &run.encodings, queries?.iter().enumerate())
             {
@@ -123,25 +164,9 @@ pub fn process_run(
                 let eval_result = String::from_utf8(output.stdout)
                     .context("unable to parse result of trec_eval")?;
                 fs::write(&trec_eval_path, &eval_result)?;
-                if let Some(compare_with) = &run.compare_with {
-                    let compare_path =
-                        format_output_path(compare_with, algorithm, encoding, tid, "trec_eval");
-                    if fs::read_to_string(&compare_path)
-                        .with_context(|_| compare_path.to_string_lossy().to_string())?
-                        != eval_result
-                    {
-                        diffs.push(Diff(compare_path, trec_eval_path));
-                    }
-                }
-            }
-            if diffs.is_empty() {
-                Ok(RunStatus::Success)
-            } else {
-                Ok(RunStatus::Regression(diffs))
             }
         }
         RunKind::Benchmark => {
-            let mut diffs: Vec<Diff> = Vec::new();
             for (algorithm, encoding, (tid, queries)) in
                 iproduct!(&run.algorithms, &run.encodings, queries?.iter().enumerate())
             {
@@ -149,28 +174,82 @@ pub fn process_run(
                     executor.benchmark(&collection, encoding, algorithm, &queries, scorer)?;
                 let path = format_output_path(&run.output, algorithm, encoding, tid, "bench");
                 fs::write(&path, &results)?;
-                if let Some(compare_with) = &run.compare_with {
-                    let results: BenchmarkResults = serde_json::from_str(&results)
-                        .context("Unable to parse benchmark results")?;
-                    let compare_path =
-                        format_output_path(compare_with, algorithm, encoding, tid, "bench");
-                    let gold_standard: BenchmarkResults = serde_json::from_reader(
-                        fs::File::open(&compare_path)
-                            .with_context(|_| compare_path.to_string_lossy().to_string())?,
-                    )
-                    .context("Unable to parse benchmark gold standard")?;
-                    if results.regressed(&gold_standard, 0.01)? {
-                        diffs.push(Diff(compare_path, path));
-                    }
-                }
-            }
-            if diffs.is_empty() {
-                Ok(RunStatus::Success)
-            } else {
-                Ok(RunStatus::Regression(diffs))
             }
         }
     }
+    Ok(())
+}
+
+fn load_benchmark_results(path: &Path) -> Result<BenchmarkResults, Error> {
+    let results: BenchmarkResults = serde_json::from_reader(
+        fs::File::open(path).with_context(|_| path.to_string_lossy().to_string())?,
+    )
+    .context("Unable to parse benchmark results")?;
+    Ok(results)
+}
+
+fn load_eval_results(path: &Path) -> Result<String, Error> {
+    Ok(fs::read_to_string(path).with_context(|_| path.to_string_lossy().to_string())?)
+}
+
+/// Compares the results of the runs with a given baseline.
+pub fn compare_with_baseline(
+    executor: &Executor,
+    run: &Run,
+    compare_with: &Path,
+    margin: RegressionMargin,
+) -> Result<RunStatus, Error> {
+    let queries: Result<Vec<_>, Error> = run
+        .topics
+        .iter()
+        .map(|t| queries_path(t, executor))
+        .collect();
+    match &run.kind {
+        RunKind::Evaluate { .. } => {
+            let mut regression_count = 0;
+            for (algorithm, encoding, tid) in
+                iproduct!(&run.algorithms, &run.encodings, 0..queries?.len())
+            {
+                let format_path = output_path_formatter(algorithm, encoding, tid, "trec_eval");
+                let result_path = format_path(&run.output);
+                let base_result_path = format_path(compare_with);
+                let results = load_eval_results(&result_path)?;
+                let baseline = load_eval_results(&base_result_path)?;
+                if results != baseline {
+                    eprintln!("Detected correctness regression!");
+                    eprintln!("file: {}", result_path.display());
+                    eprintln!("base: {}", base_result_path.display());
+                    regression_count += 1;
+                }
+            }
+            if regression_count > 0 {
+                return Ok(RunStatus::Regression(regression_count));
+            }
+        }
+        RunKind::Benchmark => {
+            let mut regression_count = 0;
+            for (algorithm, encoding, tid) in
+                iproduct!(&run.algorithms, &run.encodings, 0..queries?.len())
+            {
+                let format_path = output_path_formatter(algorithm, encoding, tid, "bench");
+                let result_path = format_path(&run.output);
+                let base_result_path = format_path(compare_with);
+                let results = load_benchmark_results(&result_path)?;
+                let baseline = load_benchmark_results(&base_result_path)?;
+                if let Some(regression) = results.regression(&baseline, margin)? {
+                    eprintln!("Detected performance regression!");
+                    eprintln!("file: {}", result_path.display());
+                    eprintln!("base: {}", base_result_path.display());
+                    eprintln!("{}", regression);
+                    regression_count += 1;
+                }
+            }
+            if regression_count > 0 {
+                return Ok(RunStatus::Regression(regression_count));
+            }
+        }
+    }
+    Ok(RunStatus::Success)
 }
 
 #[cfg(test)]

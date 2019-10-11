@@ -14,6 +14,7 @@
 use lazy_static::lazy_static;
 use log::debug;
 use regex::Regex;
+use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::process::Command;
 use std::{fmt, fs};
@@ -85,6 +86,16 @@ pub trait CommandDebug: fmt::Debug {
 }
 
 impl CommandDebug for Command {}
+
+/// Defines the performance regression error allowed.
+#[derive(Debug, Serialize, Deserialize, Clone, Copy)]
+pub struct RegressionMargin(pub f32);
+
+impl Default for RegressionMargin {
+    fn default() -> Self {
+        Self(0.02)
+    }
+}
 
 #[cfg(test)]
 mod tests {

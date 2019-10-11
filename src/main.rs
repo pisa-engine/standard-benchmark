@@ -3,7 +3,7 @@ use log::{error, info};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::{env, fs, process};
-use stdbench::run::{process_run, RunStatus};
+use stdbench::run::{compare_with_baseline, process_run, RunStatus};
 use stdbench::{
     CMakeVar, Collection, Config, Error, RawConfig, ResolvedPathsConfig, Source, Stage,
 };
@@ -141,7 +141,10 @@ fn parse_config(args: Vec<String>, init_log: bool) -> Result<Option<ResolvedPath
 
 enum FinalStatus {
     Success,
-    FailedRuns(Vec<RunStatus>),
+    FailedRuns {
+        undefined_collections: Vec<String>,
+        regressions: Vec<usize>,
+    },
 }
 
 #[cfg_attr(tarpaulin, skip)]
@@ -168,26 +171,43 @@ fn run() -> Result<FinalStatus, Error> {
         .iter()
         .map(|c| (c.name.to_string(), c))
         .collect();
-    let statuses: Result<Vec<_>, Error> = config
-        .runs()
-        .iter()
-        .map(|run| {
-            if let Some(collection) = &collections.get(&run.collection) {
-                info!("Processing run: {:?}", run);
-                process_run(&executor, run, collection, config.use_scorer())
-            } else {
-                Ok(RunStatus::CollectionUndefined(run.collection.clone()))
+    let undefined_collections = {
+        let mut undefined_collections: Vec<String> = Vec::new();
+        if config.enabled(Stage::Run) {
+            for run in config.runs() {
+                if let Some(collection) = &collections.get(&run.collection) {
+                    info!("Processing run: {:?}", run);
+                    process_run(&executor, run, collection, config.use_scorer())?;
+                } else {
+                    undefined_collections.push(run.collection.clone())
+                }
             }
-        })
-        .collect();
-    let failed_runs: Vec<_> = statuses?
-        .into_iter()
-        .filter(|status| status != &RunStatus::Success)
-        .collect();
-    if failed_runs.is_empty() {
+        }
+        undefined_collections
+    };
+    let regressions = {
+        let mut regressions: Vec<usize> = Vec::new();
+        if config.enabled(Stage::Compare) {
+            for run in config.runs() {
+                if let Some(compare_with) = &run.compare_with {
+                    match compare_with_baseline(&executor, run, compare_with, config.margin())? {
+                        RunStatus::Success => {}
+                        RunStatus::Regression(count) => {
+                            regressions.push(count);
+                        }
+                    }
+                }
+            }
+        }
+        regressions
+    };
+    if undefined_collections.is_empty() && regressions.is_empty() {
         Ok(FinalStatus::Success)
     } else {
-        Ok(FinalStatus::FailedRuns(failed_runs))
+        Ok(FinalStatus::FailedRuns {
+            undefined_collections,
+            regressions,
+        })
     }
 }
 
@@ -201,16 +221,19 @@ fn main() {
         Ok(FinalStatus::Success) => {
             info!("Success!");
         }
-        Ok(FinalStatus::FailedRuns(failed_runs)) => {
-            error!("Regressions found:");
-            for failed_run in failed_runs.into_iter() {
-                match failed_run {
-                    RunStatus::Success => unreachable!(),
-                    RunStatus::CollectionUndefined(name) => {
-                        error!("Collection undefined: {}", name)
-                    }
-                    RunStatus::Regression(diffs) => error!("{:?}", diffs),
-                }
+        Ok(FinalStatus::FailedRuns {
+            undefined_collections,
+            regressions,
+        }) => {
+            for name in undefined_collections {
+                error!("Undefined collection: {}", name)
+            }
+            if !regressions.is_empty() {
+                error!(
+                    "Found {} regressed runs with total of {} regressions",
+                    regressions.len(),
+                    regressions.into_iter().sum::<usize>()
+                );
             }
             process::exit(1);
         }
