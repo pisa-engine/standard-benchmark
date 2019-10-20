@@ -441,7 +441,7 @@ impl Config for RawConfig {
                 fs::create_dir_all(&build_dir).context("Could not create build directory")?;
                 if self.stages.get(&Stage::Compile).cloned().unwrap_or(true) {
                     repo.checkout_head(Some(git2::build::CheckoutBuilder::new().force()))?;
-                    update_repo(&repo__, &branch)?;
+                    update_repo(&repo, &branch)?;
                     let cmake = CMake::new(&cmake_vars, &build_dir);
                     cmake.configure()?;
                     cmake.build()?;
