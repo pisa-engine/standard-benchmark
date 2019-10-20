@@ -85,6 +85,14 @@ impl From<failure::Error> for Error {
     }
 }
 
+impl From<git2::Error> for Error {
+    fn from(e: git2::Error) -> Self {
+        Self {
+            inner: Context::new(e.to_string()),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

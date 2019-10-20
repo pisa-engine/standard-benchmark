@@ -317,56 +317,6 @@ pub struct RawConfig {
     pub margin: RegressionMargin,
 }
 
-pub(crate) struct GitRepository<'a> {
-    dir: &'a Path,
-}
-
-impl<'a> GitRepository<'a> {
-    pub(crate) fn open(dir: &'a Path) -> Self {
-        Self { dir }
-    }
-    pub(crate) fn clone(url: &str, dir: &'a Path) -> Result<Self, Error> {
-        Command::new("git")
-            .arg("clone")
-            .arg(url)
-            .arg(dir)
-            .log()
-            .status()?
-            .success()
-            .ok_or("git-clone failed")?;
-        Ok(Self { dir })
-    }
-    pub(crate) fn reset(&self) -> Result<(), Error> {
-        Command::new("git")
-            .current_dir(self.dir)
-            .arg("reset")
-            .arg("--hard")
-            .log()
-            .status()?
-            .success()
-            .ok_or(Error::from("git-reset failed"))
-    }
-    pub(crate) fn pull(&self) -> Result<(), Error> {
-        Command::new("git")
-            .current_dir(self.dir)
-            .arg("pull")
-            .log()
-            .status()?
-            .success()
-            .ok_or(Error::from("git-pull failed"))
-    }
-    pub(crate) fn checkout(&self, branch: &str) -> Result<(), Error> {
-        Command::new("git")
-            .current_dir(self.dir)
-            .arg("checkout")
-            .arg(branch)
-            .log()
-            .status()?
-            .success()
-            .ok_or(Error::from("git-checkout failed"))
-    }
-}
-
 struct CMake<'a> {
     cmake_vars: &'a [CMakeVar],
     dir: &'a Path,
@@ -398,6 +348,39 @@ impl<'a> CMake<'a> {
             .ok_or("cmake --build failed")?;
         Ok(())
     }
+}
+
+fn update_repo(repo: &git2::Repository, refname: &str) -> Result<(), Error> {
+    if let Ok(reference) = repo.resolve_reference_from_short_name(refname) {
+        if reference.is_branch() {
+            repo.find_remote("origin")?.fetch(&[refname], None, None)?;
+            let origin_ref = repo
+                .find_branch(refname, git2::BranchType::Local)?
+                .upstream()?
+                .into_reference();
+            let origin_commit = repo.reference_to_annotated_commit(&origin_ref)?;
+            repo.merge(
+                &[&origin_commit],
+                None,
+                Some(git2::build::CheckoutBuilder::new().use_theirs(true).force()),
+            )?;
+        } else if reference.is_tag() {
+            repo.checkout_tree(
+                &reference.peel(git2::ObjectType::Any)?,
+                Some(git2::build::CheckoutBuilder::new().force()),
+            )?;
+        } else {
+            return Err(Error::from(format!(
+                "Reference is not a tag or a branch: {}",
+                reference.name().unwrap_or("invalid-utf8")
+            )));
+        }
+    } else {
+        let oid = git2::Oid::from_str(refname)?;
+        let obj = repo.find_object(oid, None)?;
+        repo.checkout_tree(&obj, Some(git2::build::CheckoutBuilder::new().force()))?;
+    }
+    Ok(())
 }
 
 impl Config for RawConfig {
@@ -450,16 +433,15 @@ impl Config for RawConfig {
                     self.workdir.join(&local_path)
                 };
                 let repo = if dir.exists() {
-                    GitRepository::open(&dir)
+                    git2::Repository::open(&dir)?
                 } else {
-                    GitRepository::clone(&url, &dir)?
+                    git2::Repository::clone_recurse(&url, &dir).map_err(|_| "git-clone failed")?
                 };
                 let build_dir = dir.join("build");
                 fs::create_dir_all(&build_dir).context("Could not create build directory")?;
                 if self.stages.get(&Stage::Compile).cloned().unwrap_or(true) {
-                    repo.reset()?;
-                    repo.checkout(&branch)?;
-                    repo.pull()?;
+                    repo.checkout_head(Some(git2::build::CheckoutBuilder::new().force()))?;
+                    update_repo(&repo__, &branch)?;
                     let cmake = CMake::new(&cmake_vars, &build_dir);
                     cmake.configure()?;
                     cmake.build()?;

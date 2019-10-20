@@ -247,7 +247,6 @@ impl Executor {
 
 #[cfg(test)]
 mod test {
-    use crate::config::GitRepository;
     use crate::run::process_run;
     use crate::tests::{mock_set_up, MockSetup};
     use crate::{Config, Error, Executor, Stage};
@@ -404,7 +403,18 @@ mod test {
         }
     }
 
-    fn set_up_git() -> (TempDir, PathBuf, PathBuf) {
+    fn current_commit(origin_dir: &std::path::Path) -> Result<String, Error> {
+        Ok(String::from_utf8(
+            Command::new("git")
+                .current_dir(origin_dir)
+                .args(&["rev-parse", "HEAD"])
+                .output()?
+                .stdout,
+        )
+        .unwrap())
+    }
+
+    fn set_up_git() -> (TempDir, PathBuf, PathBuf, String) {
         let tmp = TempDir::new("tmp").unwrap();
         let workdir = tmp.path().join("work");
         let origin_dir = tmp.path().join("origin");
@@ -418,59 +428,77 @@ mod test {
         std::fs::write(origin_dir.join("CMakeLists.txt"), &cmakelists)
             .expect("Unable to write file");
         run("git add CMakeLists.txt");
-        run("git commit -m \"c\"");
-        (tmp, workdir, origin_dir)
+        run("git commit -m \"c1\"");
+        let hash = current_commit(origin_dir.as_path()).expect("Unable to resolve current commit");
+        run("git tag Tag");
+        std::fs::write(origin_dir.join("README"), "Read me!").expect("Unable to write file");
+        run("git add README");
+        run("git commit -m \"c2\"");
+        (tmp, workdir, origin_dir, String::from(hash.trim()))
     }
 
     #[test]
-    fn test_init_git() {
-        let (_tmp, workdir, origin_dir) = set_up_git();
-        let conf = ResolvedPathsConfig::from(RawConfig {
-            workdir: workdir.clone(),
-            source: Source::Git {
-                url: origin_dir.to_string_lossy().to_string(),
-                branch: "master".into(),
-                cmake_vars: vec![],
-                local_path: "pisa".into(),
-            },
-            ..RawConfig::default()
-        })
-        .unwrap();
+    fn test_init_git_works() {
+        let (_tmp, workdir, origin_dir, commit) = set_up_git();
+        let make_conf = |branch: &str| {
+            ResolvedPathsConfig::from(RawConfig {
+                workdir: workdir.clone(),
+                source: Source::Git {
+                    url: origin_dir.to_string_lossy().to_string(),
+                    branch: branch.into(),
+                    cmake_vars: vec![],
+                    local_path: "pisa".into(),
+                },
+                ..RawConfig::default()
+            })
+            .unwrap()
+        };
+        let conf = make_conf("master");
         assert_eq!(
             conf.executor(),
             Ok(Executor {
                 path: Some(workdir.join("pisa").join("build").join("bin"))
             })
         );
-    }
+        assert!(workdir.join("pisa").join("README").exists());
 
-    #[test]
-    fn test_init_git_exists() {
-        let (_tmp, workdir, origin_dir) = set_up_git();
-        let url = origin_dir.to_string_lossy().to_string();
-        GitRepository::clone(&url, &workdir.join("pisa")).unwrap();
-        let conf = ResolvedPathsConfig::from(RawConfig {
-            workdir: workdir.clone(),
-            source: Source::Git {
-                url,
-                branch: "master".into(),
-                cmake_vars: vec![],
-                local_path: "pisa".into(),
-            },
-            ..RawConfig::default()
-        })
-        .unwrap();
+        // Make sure to reset changes
+        std::fs::remove_file(workdir.join("pisa").join("CMakeLists.txt")).unwrap();
         assert_eq!(
             conf.executor(),
             Ok(Executor {
                 path: Some(workdir.join("pisa").join("build").join("bin"))
             })
         );
+
+        // Reset changes and checkout a commit
+        std::fs::remove_file(workdir.join("pisa").join("CMakeLists.txt")).unwrap();
+        let conf = make_conf(&commit);
+        assert_eq!(
+            conf.executor(),
+            Ok(Executor {
+                path: Some(workdir.join("pisa").join("build").join("bin"))
+            })
+        );
+        assert!(!workdir.join("pisa").join("README").exists());
+        assert!(workdir.join("pisa").join("CMakeLists.txt").exists());
+
+        // Reset changes and checkout a commit
+        std::fs::remove_file(workdir.join("pisa").join("CMakeLists.txt")).unwrap();
+        let conf = make_conf("Tag");
+        assert_eq!(
+            conf.executor(),
+            Ok(Executor {
+                path: Some(workdir.join("pisa").join("build").join("bin"))
+            })
+        );
+        assert!(!workdir.join("pisa").join("README").exists());
+        assert!(workdir.join("pisa").join("CMakeLists.txt").exists());
     }
 
     #[test]
     fn test_init_git_suppress_compilation() {
-        let (_tmp, workdir, origin_dir) = set_up_git();
+        let (_tmp, workdir, origin_dir, _) = set_up_git();
         let mut conf = ResolvedPathsConfig::from(RawConfig {
             workdir: workdir.clone(),
             source: Source::Git {
