@@ -463,7 +463,7 @@ impl Config for RawConfig {
 /// It is introduced so that it can be taken as argument to functions that assume
 /// the paths are resolved.
 #[derive(Debug)]
-pub struct ResolvedPathsConfig(RawConfig);
+pub struct ResolvedPathsConfig(pub RawConfig);
 
 fn resolve_path(workdir: &Path, path: PathBuf) -> PathBuf {
     if path.is_absolute() {
@@ -763,8 +763,15 @@ impl AsRef<str> for Algorithm {
 }
 
 /// Posting list encoding name.
-#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq, Hash)]
 pub struct Encoding(pub String);
+
+impl FromStr for Encoding {
+    type Err = Error;
+    fn from_str(encoding: &str) -> Result<Self, Self::Err> {
+        Ok(Self::from(encoding))
+    }
+}
 
 impl From<&str> for Encoding {
     fn from(encoding: &str) -> Self {
