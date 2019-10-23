@@ -2,10 +2,10 @@ use failure::ResultExt;
 use log::{error, info};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-use std::{env, fs, process};
+use std::{env, fs, mem, process};
 use stdbench::run::{compare_with_baseline, process_run, RunStatus};
 use stdbench::{
-    CMakeVar, Collection, Config, Error, RawConfig, ResolvedPathsConfig, Source, Stage,
+    CMakeVar, Collection, Config, Encoding, Error, RawConfig, ResolvedPathsConfig, Source, Stage,
 };
 use structopt::StructOpt;
 use strum::IntoEnumIterator;
@@ -37,6 +37,10 @@ struct Opt {
     #[structopt(long)]
     collections: Vec<String>,
 
+    /// Filter out collections you want to run
+    #[structopt(long)]
+    encodings: Vec<Encoding>,
+
     /// Remove entire work dir first
     #[structopt(long)]
     clean: bool,
@@ -51,16 +55,19 @@ struct Opt {
     cmake_vars: Vec<CMakeVar>,
 }
 
-fn filter_collections(mut config: &mut RawConfig, collections: &[String]) {
-    let colset = collections.iter().collect::<HashSet<&String>>();
-    config.collections = std::mem::replace(&mut config.collections, vec![])
+fn filter_collections(mut config: &mut RawConfig, collections: Vec<String>) {
+    if collections.is_empty() {
+        return;
+    }
+    let colset: HashSet<String> = collections.into_iter().collect();
+    config.collections = mem::replace(&mut config.collections, vec![])
         .into_iter()
         .filter(|c| {
             let name = &c.name;
-            colset.contains(&name)
+            colset.contains(name)
         })
         .collect();
-    config.runs = std::mem::replace(&mut config.runs, vec![])
+    config.runs = mem::replace(&mut config.runs, vec![])
         .into_iter()
         .filter(|r| colset.contains(&r.collection))
         .collect();
@@ -76,6 +83,24 @@ fn filter_collections(mut config: &mut RawConfig, collections: &[String]) {
     //     .drain_filter(|r| colset.contains(&r.collection.as_ref()));
 }
 
+fn filter_encodings(config: &mut RawConfig, encodings: Vec<Encoding>) {
+    if !encodings.is_empty() {
+        let encoding_filter: HashSet<Encoding> = encodings.into_iter().collect();
+        for collection in &mut config.collections {
+            collection.encodings = mem::replace(&mut collection.encodings, vec![])
+                .into_iter()
+                .filter(|e| encoding_filter.contains(e))
+                .collect();
+        }
+        for run in &mut config.runs {
+            run.encodings = mem::replace(&mut run.encodings, vec![])
+                .into_iter()
+                .filter(|e| encoding_filter.contains(e))
+                .collect();
+        }
+    }
+}
+
 fn parse_config(args: Vec<String>, init_log: bool) -> Result<Option<ResolvedPathsConfig>, Error> {
     let Opt {
         config_file,
@@ -84,6 +109,7 @@ fn parse_config(args: Vec<String>, init_log: bool) -> Result<Option<ResolvedPath
         print_stages,
         suppress,
         collections,
+        encodings,
         clean,
         no_scorer,
         cmake_vars,
@@ -117,9 +143,7 @@ fn parse_config(args: Vec<String>, init_log: bool) -> Result<Option<ResolvedPath
     for stage in suppress {
         config.disable(stage);
     }
-    if !collections.is_empty() {
-        filter_collections(&mut config, &collections);
-    }
+    filter_collections(&mut config, collections);
     if let Source::Git {
         cmake_vars: inner_cmake_vars,
         ..
@@ -136,7 +160,9 @@ fn parse_config(args: Vec<String>, init_log: bool) -> Result<Option<ResolvedPath
     if clean {
         config.clean = true;
     }
-    Ok(Some(ResolvedPathsConfig::from(config)?))
+    let mut config = ResolvedPathsConfig::from(config)?;
+    filter_encodings(&mut config.0, encodings);
+    Ok(Some(config))
 }
 
 enum FinalStatus {

@@ -339,8 +339,9 @@ impl<'a> CMake<'a> {
             .ok_or("cmake failed")?;
         Ok(())
     }
-    fn build(&self) -> Result<(), Error> {
-        process("cmake --build .")
+    fn build(&self, threads: usize) -> Result<(), Error> {
+        process("cmake --build . -- -j")
+            .arg(threads.to_string())
             .current_dir(self.dir)
             .log()
             .status()?
@@ -426,6 +427,7 @@ impl Config for RawConfig {
                 url,
                 cmake_vars,
                 local_path,
+                compile_threads,
             } => {
                 let dir = if local_path.is_absolute() {
                     local_path.to_path_buf()
@@ -444,7 +446,7 @@ impl Config for RawConfig {
                     update_repo(&repo, &branch)?;
                     let cmake = CMake::new(&cmake_vars, &build_dir);
                     cmake.configure()?;
-                    cmake.build()?;
+                    cmake.build(*compile_threads)?;
                 } else {
                     warn!("Compilation has been suppressed");
                 }
@@ -461,7 +463,7 @@ impl Config for RawConfig {
 /// It is introduced so that it can be taken as argument to functions that assume
 /// the paths are resolved.
 #[derive(Debug)]
-pub struct ResolvedPathsConfig(RawConfig);
+pub struct ResolvedPathsConfig(pub RawConfig);
 
 fn resolve_path(workdir: &Path, path: PathBuf) -> PathBuf {
     if path.is_absolute() {
@@ -679,6 +681,10 @@ fn default_local_path() -> PathBuf {
     PathBuf::from("pisa")
 }
 
+fn default_no_threads() -> usize {
+    1_usize
+}
+
 /// Source of PISA executables.
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 #[serde(rename_all = "lowercase")]
@@ -696,6 +702,9 @@ pub enum Source {
         /// Partial paths will be rooted at the working directory.
         #[serde(default = "default_local_path")]
         local_path: PathBuf,
+        /// Use this many threads when calling `make`.
+        #[serde(default = "default_no_threads")]
+        compile_threads: usize,
     },
     /// Executables in a given directory.
     Path(PathBuf),
@@ -754,8 +763,15 @@ impl AsRef<str> for Algorithm {
 }
 
 /// Posting list encoding name.
-#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq, Hash)]
 pub struct Encoding(pub String);
+
+impl FromStr for Encoding {
+    type Err = Error;
+    fn from_str(encoding: &str) -> Result<Self, Self::Err> {
+        Ok(Self::from(encoding))
+    }
+}
 
 impl From<&str> for Encoding {
     fn from(encoding: &str) -> Self {
@@ -1016,7 +1032,8 @@ mod test {
                     typedef: None,
                     value: "Release".to_string(),
                 }],
-                local_path: PathBuf::from("pisa")
+                local_path: PathBuf::from("pisa"),
+                compile_threads: 1_usize,
             }
         );
 
@@ -1028,7 +1045,8 @@ mod test {
     - CMAKE_BUILD_TYPE:BOOL=Release
     - PISA_ENABLE_TESTING=OFF
     - PISA_ENABLE_BENCHMARKING:BOOL=False
-  local_path: pisa-master",
+  local_path: pisa-master
+  compile_threads: 2",
         )?;
         assert_eq!(
             source,
@@ -1052,7 +1070,8 @@ mod test {
                         value: "False".to_string(),
                     },
                 ],
-                local_path: PathBuf::from("pisa-master")
+                local_path: PathBuf::from("pisa-master"),
+                compile_threads: 2,
             }
         );
 
