@@ -382,6 +382,7 @@ mod test {
                 url: "http://examp.le".into(),
                 cmake_vars: vec![],
                 local_path: "pisa".into(),
+                compile_threads: 1,
             },
             ..RawConfig::default()
         })
@@ -448,6 +449,7 @@ mod test {
                     branch: branch.into(),
                     cmake_vars: vec![],
                     local_path: "pisa".into(),
+                    compile_threads: 1,
                 },
                 ..RawConfig::default()
             })
@@ -506,6 +508,7 @@ mod test {
                 branch: "master".into(),
                 cmake_vars: vec![],
                 local_path: "pisa".into(),
+                compile_threads: 1,
             },
             ..RawConfig::default()
         })
