@@ -352,9 +352,9 @@ impl<'a> CMake<'a> {
 }
 
 fn update_repo(repo: &git2::Repository, refname: &str) -> Result<(), Error> {
+    repo.find_remote("origin")?.fetch(&[refname], None, None)?;
     if let Ok(reference) = repo.resolve_reference_from_short_name(refname) {
         if reference.is_branch() {
-            repo.find_remote("origin")?.fetch(&[refname], None, None)?;
             let origin_ref = repo
                 .find_branch(refname, git2::BranchType::Local)?
                 .upstream()?
