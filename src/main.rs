@@ -272,6 +272,8 @@ mod test {
 
     use super::*;
     use std::fs;
+    use stdbench::config::{CollectionKind, Scorer};
+    use stdbench::{Run, RunKind};
     use tempdir::TempDir;
 
     fn mkfiles(root: &std::path::Path, paths: &[&str]) -> Result<(), Error> {
@@ -360,5 +362,64 @@ collections:
         )?
         .is_none());
         Ok(())
+    }
+
+    #[test]
+    fn test_filter_encodings() {
+        //let tmp = TempDir::new("tmp").unwrap();
+        let mut config = RawConfig {
+            //workdir: tmp.path().to_path_buf(),
+            collections: vec![Collection {
+                name: "Col01".to_string(),
+                kind: CollectionKind::Warc,
+                input_dir: None,
+                fwd_index: PathBuf::from("fwd"),
+                inv_index: PathBuf::from("inv"),
+                encodings: vec![
+                    Encoding::from("block_simdbp"),
+                    Encoding::from("block_optpfor"),
+                    Encoding::from("pefopt"),
+                ],
+                scorers: vec![Scorer::from("bm25")],
+            }],
+            runs: vec![Run {
+                collection: "Col01".to_string(),
+                kind: RunKind::Benchmark,
+                encodings: vec![
+                    Encoding::from("block_simdbp"),
+                    Encoding::from("block_optpfor"),
+                    Encoding::from("pefopt"),
+                ],
+                algorithms: vec![],
+                output: PathBuf::from("path"),
+                topics: vec![],
+                scorer: Scorer::from("bm25"),
+                compare_with: None,
+            }],
+            ..RawConfig::default()
+        };
+        filter_encodings(&mut config, vec![]);
+        assert_eq!(
+            config.collections[0].encodings,
+            vec![
+                Encoding::from("block_simdbp"),
+                Encoding::from("block_optpfor"),
+                Encoding::from("pefopt"),
+            ]
+        );
+        assert_eq!(
+            config.runs[0].encodings,
+            vec![
+                Encoding::from("block_simdbp"),
+                Encoding::from("block_optpfor"),
+                Encoding::from("pefopt"),
+            ]
+        );
+        filter_encodings(&mut config, vec![Encoding::from("pefopt")]);
+        assert_eq!(
+            config.collections[0].encodings,
+            vec![Encoding::from("pefopt"),]
+        );
+        assert_eq!(config.runs[0].encodings, vec![Encoding::from("pefopt"),]);
     }
 }

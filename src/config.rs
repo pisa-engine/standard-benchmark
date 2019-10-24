@@ -352,7 +352,27 @@ impl<'a> CMake<'a> {
 }
 
 fn update_repo(repo: &git2::Repository, refname: &str) -> Result<(), Error> {
-    repo.find_remote("origin")?.fetch(&[refname], None, None)?;
+    let mut oid: Option<git2::Oid> = None;
+    {
+        let mut cb = git2::RemoteCallbacks::new();
+        cb.update_tips(|_, old, new| {
+            if old.is_zero() {
+                oid = Some(new);
+            }
+            true
+        });
+        let mut fo = git2::FetchOptions::new();
+        fo.remote_callbacks(cb);
+        let mut remote = repo.find_remote("origin")?;
+        remote.fetch(&[refname], Some(&mut fo), None)?;
+    }
+
+    if let Some(oid) = oid {
+        let obj = repo.find_object(oid, None)?;
+        repo.checkout_tree(&obj, Some(git2::build::CheckoutBuilder::new().force()))?;
+        return Ok(());
+    }
+
     if let Ok(reference) = repo.resolve_reference_from_short_name(refname) {
         if reference.is_branch() {
             let origin_ref = repo

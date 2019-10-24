@@ -254,7 +254,7 @@ mod test {
     use std::fs::create_dir_all;
     use std::fs::Permissions;
     use std::os::unix::fs::PermissionsExt;
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
     use std::process::Command;
     use tempdir::TempDir;
 
@@ -393,8 +393,8 @@ mod test {
         );
     }
 
-    fn run_from(dir: PathBuf) -> impl Fn(&'static str) -> () {
-        move |args: &'static str| {
+    fn run_from(dir: PathBuf) -> impl Fn(&str) -> () {
+        move |args: &str| {
             let mut args = args.split(' ');
             Command::new(args.next().unwrap())
                 .current_dir(&dir)
@@ -404,7 +404,7 @@ mod test {
         }
     }
 
-    fn current_commit(origin_dir: &std::path::Path) -> Result<String, Error> {
+    fn current_commit(origin_dir: &Path) -> Result<String, Error> {
         Ok(String::from_utf8(
             Command::new("git")
                 .current_dir(origin_dir)
@@ -436,6 +436,11 @@ mod test {
         run("git add README");
         run("git commit -m \"c2\"");
         (tmp, workdir, origin_dir, String::from(hash.trim()))
+    }
+
+    fn add_branch_to_origin(origin: &Path, name: &str) {
+        let run = run_from(origin.to_path_buf());
+        run(&format!("git checkout -b {}", name));
     }
 
     #[test]
@@ -496,6 +501,15 @@ mod test {
         );
         assert!(!workdir.join("pisa").join("README").exists());
         assert!(workdir.join("pisa").join("CMakeLists.txt").exists());
+
+        add_branch_to_origin(&origin_dir, "new_branch");
+        let conf = make_conf("new_branch");
+        assert_eq!(
+            conf.executor(),
+            Ok(Executor {
+                path: Some(workdir.join("pisa").join("build").join("bin"))
+            })
+        );
     }
 
     #[test]

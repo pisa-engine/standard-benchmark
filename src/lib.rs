@@ -22,7 +22,7 @@ use std::{fmt, fs};
 pub mod config;
 pub use config::{
     Algorithm, CMakeVar, Collection, Config, Encoding, RawConfig, Resolved, ResolvedPathsConfig,
-    Run, Scorer, Source, Stage,
+    Run, RunKind, Scorer, Source, Stage,
 };
 
 mod executor;
