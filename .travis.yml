@@ -2,7 +2,7 @@ sudo: required
 language: rust
 dist: xenial
 
-cache: cargo
+#cache: cargo
 
 addons:
   apt:
